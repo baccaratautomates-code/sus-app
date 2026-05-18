@@ -1,0 +1,16 @@
+{
+  "expo": {
+    "name": "Sus",
+    "slug": "sus",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.disruptorsmedia.sus"
+    },
+    "android": {
+      "package": "com.disruptorsmedia.sus"
+    }
+  }
+}

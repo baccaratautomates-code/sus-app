@@ -1,0 +1,14 @@
+{
+  "name": "@sus/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "ios": "expo start --ios",
+    "android": "expo start --android"
+  },
+  "dependencies": {
+    "@sus/shared": "workspace:*"
+  }
+}

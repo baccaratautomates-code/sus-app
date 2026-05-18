@@ -1,0 +1,17 @@
+{
+  "name": "sus",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Sus — mobile app that tells you if a product is legit, suspicious, or high risk.",
+  "workspaces": [
+    "apps/*",
+    "workers/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "bun --filter @sus/mobile",
+    "api": "bun --filter @sus/api",
+    "workers": "bun --filter @sus/workers"
+  },
+  "packageManager": "bun@1.1.0"
+}
