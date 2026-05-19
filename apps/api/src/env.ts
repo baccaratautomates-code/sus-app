@@ -6,6 +6,6 @@ function required(name: string): string {
 
 export const env = {
   REDIS_URL: required("REDIS_URL"),
-  ANTHROPIC_API_KEY: required("ANTHROPIC_API_KEY"),
+  GROQ_API_KEY: required("GROQ_API_KEY"),
   WORKER_QUEUE_NAME: process.env.WORKER_QUEUE_NAME ?? "scraper-queue",
 };

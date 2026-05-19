@@ -1,41 +1,106 @@
-import { Worker, Queue } from "bullmq";
-import type { ScrapeJob, ScrapeResult } from "@sus/shared";
+console.log("REDIS_URL from env:", process.env.REDIS_URL);
 
-const connection = {
-  host: process.env.REDIS_HOST ?? "localhost",
-  port: Number(process.env.REDIS_PORT ?? 6379),
+import { config } from "dotenv";
+config();
+
+import { Worker } from "bullmq";
+import IORedis from "ioredis";
+import type { ScrapeJob, ScrapeResult } from "@sus/shared";
+import { internalScamDbScraper } from "./scrapers/internal-scam-db";
+import { newsScraper } from "./scrapers/news";
+import { priceSanityScraper } from "./scrapers/price-sanity";
+import { redditScraper } from "./scrapers/reddit";
+import { reviewAuthenticityScraper } from "./scrapers/review-authenticity";
+import { scamadviserScraper } from "./scrapers/scamadviser";
+import { trustpilotScraper } from "./scrapers/trustpilot";
+import { whoisScraper } from "./scrapers/whois";
+
+const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+const QUEUE_NAME = process.env.WORKER_QUEUE_NAME ?? "scraper-queue";
+
+console.log(`[workers] starting, queue="${QUEUE_NAME}", redis=${REDIS_URL}`);
+
+// BullMQ requires maxRetriesPerRequest: null on Worker connections.
+const connection = new IORedis(REDIS_URL, { maxRetriesPerRequest: null });
+
+connection.on("connect", () => console.log("[workers] redis connected"));
+connection.on("ready", () => console.log("[workers] redis ready"));
+connection.on("error", (err) => console.error(`[workers] redis error: ${err.message}`));
+connection.on("end", () => console.warn("[workers] redis connection closed"));
+connection.on("reconnecting", () => console.warn("[workers] redis reconnecting…"));
+
+// Job name → scraper. The API enqueues one job per source with the source string
+// as the job name; this dispatcher routes to the matching scraper.
+type ScraperFn = (input: { id: string; data: ScrapeJob }) => Promise<ScrapeResult>;
+
+const SCRAPERS: Record<string, ScraperFn> = {
+  "internal-scam-db": internalScamDbScraper,
+  news: newsScraper,
+  "price-sanity": priceSanityScraper,
+  reddit: redditScraper,
+  "review-authenticity": reviewAuthenticityScraper,
+  scamadviser: scamadviserScraper,
+  trustpilot: trustpilotScraper,
+  whois: whoisScraper,
+  // Remaining unimplemented: dti-ph
 };
 
-export const scrapeQueue = new Queue<ScrapeJob>("sus.scrape", { connection });
+const worker = new Worker<ScrapeJob, ScrapeResult>(
+  QUEUE_NAME,
+  async (job) => {
+    console.log(
+      `[workers] job received: id=${job.id} name="${job.name}" target=${job.data.target_url}`,
+    );
 
-// One worker entry per signal source. Each is isolated and independently testable.
-// See PRD §3.2 for the full source list.
-const sources = [
-  "trustpilot",
-  "scamadviser",
-  "reddit",
-  "dti-ph",
-  "whois",
-  "price-sanity",
-  "review-authenticity",
-  "internal-scam-db",
-  "news",
-] as const;
-
-for (const source of sources) {
-  new Worker<ScrapeJob, ScrapeResult>(
-    `sus.scrape.${source}`,
-    async (job) => {
-      // TODO: implement per-source scraping
+    const scraper = SCRAPERS[job.name];
+    if (!scraper) {
+      console.warn(
+        `[workers] no scraper registered for "${job.name}" — returning empty result`,
+      );
       return {
-        source,
+        source: job.name,
         job_id: job.id ?? "",
         signals: [],
         scraped_at: new Date().toISOString(),
       };
-    },
-    { connection },
+    }
+
+    return scraper({ id: job.id ?? "", data: job.data });
+  },
+  { connection },
+);
+
+worker.on("ready", () =>
+  console.log(
+    `[workers] worker ready, handlers: ${Object.keys(SCRAPERS).join(", ") || "(none)"}`,
+  ),
+);
+worker.on("active", (job) =>
+  console.log(`[workers] job active: id=${job.id} name="${job.name}"`),
+);
+worker.on("completed", (job, result: ScrapeResult) => {
+  const ms = job.processedOn && job.finishedOn ? job.finishedOn - job.processedOn : "?";
+  console.log(
+    `[workers] job completed: id=${job.id} name="${job.name}" signals=${result.signals.length} duration=${ms}ms`,
   );
+});
+worker.on("failed", (job, err) =>
+  console.error(
+    `[workers] job failed: id=${job?.id} name="${job?.name}" error=${err.message}`,
+  ),
+);
+worker.on("error", (err) => console.error(`[workers] worker error: ${err.message}`));
+
+async function shutdown(signal: string) {
+  console.log(`[workers] received ${signal}, shutting down…`);
+  try {
+    await worker.close();
+    await connection.quit();
+  } catch (err) {
+    console.error(`[workers] shutdown error: ${(err as Error).message}`);
+  }
+  process.exit(0);
 }
 
-console.log(`[workers] registered ${sources.length} scraper workers`);
+process.on("SIGINT", () => void shutdown("SIGINT"));
+process.on("SIGTERM", () => void shutdown("SIGTERM"));

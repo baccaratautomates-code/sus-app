@@ -1,9 +1,19 @@
 import { Hono } from "hono";
-import Anthropic from "@anthropic-ai/sdk";
+import { cors } from "hono/cors";
+import Groq from "groq-sdk";
 import type { ScanRequest } from "@sus/shared";
 import { runScan } from "./scan";
 
 const app = new Hono();
+
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type"],
+  }),
+);
 
 app.get("/", (c) => c.json({ service: "sus-api", status: "ok" }));
 
@@ -22,8 +32,8 @@ app.post("/scan", async (c) => {
     const response = await runScan(parsed.value);
     return c.json(response);
   } catch (err) {
-    if (err instanceof Anthropic.APIError) {
-      console.error(`[scan] anthropic ${err.status}: ${err.message}`);
+    if (err instanceof Groq.APIError) {
+      console.error(`[scan] groq ${err.status}: ${err.message}`);
       return c.json({ error: "synthesis failed" }, 502);
     }
     console.error("[scan] failed", err);

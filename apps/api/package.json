@@ -9,9 +9,9 @@
     "start": "bun src/index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.40.0",
     "@sus/shared": "workspace:*",
     "bullmq": "^5.21.0",
+    "groq-sdk": "^0.7.0",
     "hono": "^4.6.0",
     "ioredis": "^5.4.0"
   }

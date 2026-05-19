@@ -30,15 +30,30 @@ export async function fanOutScrapers(
   targetUrl: string,
   perJobTimeoutMs: number,
 ): Promise<ScrapeResult[]> {
+  console.log(
+    `[queue] fan-out scan=${scanId} target=${targetUrl} redis=${env.REDIS_URL} queue="${env.WORKER_QUEUE_NAME}"`,
+  );
+  console.log(
+    `[queue] enqueueing ${SCRAPE_SOURCES.length} jobs: ${SCRAPE_SOURCES.join(", ")}`,
+  );
+
   const jobs = await Promise.all(
     SCRAPE_SOURCES.map((source) =>
       queue.add(source, { scan_id: scanId, source, target_url: targetUrl }),
     ),
   );
 
+  console.log(
+    `[queue] enqueued: ${jobs.map((j) => `${j.name}#${j.id}`).join(", ")}`,
+  );
+
   const settled = await Promise.allSettled(
     jobs.map((job) => job.waitUntilFinished(queueEvents, perJobTimeoutMs)),
   );
+
+  const succeeded = settled.filter((r) => r.status === "fulfilled").length;
+  const failed = settled.length - succeeded;
+  console.log(`[queue] fan-out complete scan=${scanId} succeeded=${succeeded} failed=${failed}`);
 
   return settled
     .filter((r): r is PromiseFulfilledResult<ScrapeResult> => r.status === "fulfilled")

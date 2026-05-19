@@ -1,4 +1,11 @@
+import { Platform } from "react-native";
 import type { ScanResponse, Verdict } from "@sus/shared";
+
+// Dev API base. Web hits localhost directly; native (iOS/Android) needs the
+// host's LAN IP since "localhost" on a device/emulator points at itself.
+// Swap via env or a config screen when you stand up real deployments.
+const API_BASE =
+  Platform.OS === "web" ? "http://localhost:3000" : "http://192.168.1.6:3000";
 
 export interface RecentScan {
   id: string;
@@ -7,9 +14,11 @@ export interface RecentScan {
   scanned_at: string;
 }
 
-// Mock in-memory state for the prototype. Replace with persistent storage + API later.
+// Mock in-memory state for the prototype. Replace with persistent storage later.
+// scansLeft / isPro / recentScans are read by HomeScreen, VerdictScreen, PaywallScreen.
 export const mockState = {
-  scansLeft: 2,
+  // TODO: reset to 3 before production
+  scansLeft: 10,
   isPro: false,
   recentScans: [
     {
@@ -33,37 +42,24 @@ export const mockState = {
   ] as RecentScan[],
 };
 
-export function mockVerdictFor(url: string): ScanResponse {
-  return {
-    trust_score: 34,
-    verdict: "Suspicious",
-    summary:
-      "This seller has 3-month-old reviews concentrated in a 2-week window and is flagged on Scamadviser. Pricing is 60% below market for the listed brand, which is a common counterfeit signal.",
-    red_flags: [
-      "Domain registered 47 days ago via privacy-protected WHOIS",
-      "Reviews show velocity spike pattern (Fakespot-style: F)",
-      "Listed price 60% below brand MSRP — counterfeit signal",
-    ],
-    green_flags: [],
-    confidence: "Medium",
-    sources: [
-      {
-        url: "https://www.scamadviser.com/check-website/example.com",
-        title: "Scamadviser report",
-        signal_type: "domain",
-      },
-      {
-        url: "https://www.reddit.com/r/scams/comments/example",
-        title: "r/scams — discussion thread",
-        signal_type: "seller_reputation",
-      },
-      {
-        url: "https://www.amazon.com/dp/B0EXAMPLE",
-        title: "Reference price on Amazon",
-        signal_type: "price_sanity",
-      },
-    ],
-    scanned_at: new Date().toISOString(),
-    input: { kind: "url", url, user_id: "mock-user" },
-  };
+// Real scan request. Pass an AbortSignal to cancel (used for timeout + unmount).
+export async function requestScan(
+  url: string,
+  signal?: AbortSignal,
+): Promise<ScanResponse> {
+  const res = await fetch(`${API_BASE}/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ kind: "url", url, user_id: "test-user" }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Server returned ${res.status}${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  return (await res.json()) as ScanResponse;
 }

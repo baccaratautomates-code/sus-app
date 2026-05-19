@@ -28,14 +28,20 @@ function notEnoughInfo(req: ScanRequest, sources: Source[]): ScanResponse {
 }
 
 export async function runScan(req: ScanRequest): Promise<ScanResponse> {
+  console.log(`[scan] runScan kind=${req.kind} user=${req.user_id}`);
   const target = cacheTarget(req);
 
   // 1. Cache check (Redis, 7-day TTL).
   const cached = await getCachedVerdict(target);
-  if (cached) return cached;
+  if (cached) {
+    console.log(`[scan] cache HIT target=${target} verdict="${cached.verdict}" — skipping fan-out`);
+    return cached;
+  }
+  console.log(`[scan] cache MISS target=${target} — proceeding to fan-out`);
 
   // 2. Fan out to scraper workers via BullMQ; wait up to 25s.
   const scanId = randomUUID();
+  console.log(`[scan] calling fanOutScrapers scan=${scanId} timeout=${SCRAPER_TIMEOUT_MS}ms`);
   const results = await fanOutScrapers(scanId, target, SCRAPER_TIMEOUT_MS);
 
   // 3. Insufficient data → "Not Enough Info". Never default to Looks Legit.

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import Groq from "groq-sdk";
 import type {
   Confidence,
   ScrapeResult,
@@ -8,7 +8,7 @@ import type {
 } from "@sus/shared";
 import { env } from "./env";
 
-const SYNTHESIS_MODEL = "claude-haiku-4-5";
+const SYNTHESIS_MODEL = "llama-3.1-8b-instant";
 const MAX_OUTPUT_TOKENS = 1024;
 
 const ALLOWED_VERDICTS: readonly Verdict[] = [
@@ -20,6 +20,8 @@ const ALLOWED_VERDICTS: readonly Verdict[] = [
 
 const ALLOWED_CONFIDENCE: readonly Confidence[] = ["High", "Medium", "Low"] as const;
 
+// Groq's json_object mode guarantees parseable JSON but does NOT enforce a schema,
+// so the schema must be described in the prompt and re-validated client-side below.
 const SYSTEM_PROMPT = `You synthesize aggregated public signals about an online product or seller into a structured trust verdict for the Sus mobile app.
 
 Hard rules (non-negotiable):
@@ -29,44 +31,18 @@ Hard rules (non-negotiable):
 - Confidence values are exactly: "High", "Medium", "Low".
 - trust_score is an integer 0-100. Calibrate roughly: 75-100 = Looks Legit, 40-74 = Suspicious, 0-39 = High Risk. "Not Enough Info" should pair with a low score and Low confidence.
 
-Output a single JSON object matching the requested schema. No prose, no markdown, no preamble.`;
+Output ONLY a single JSON object matching this exact schema. No prose, no markdown fences, no preamble:
+{
+  "trust_score": <integer 0-100>,
+  "verdict": "Looks Legit" | "Suspicious" | "High Risk" | "Not Enough Info",
+  "summary": "<string, 2-3 sentences>",
+  "red_flags": ["<string>", "..."],
+  "green_flags": ["<string>", "..."],
+  "confidence": "High" | "Medium" | "Low",
+  "sources": [{"url": "<string>", "title": "<string>", "signal_type": "<string>"}]
+}`;
 
-const OUTPUT_SCHEMA = {
-  type: "object",
-  properties: {
-    trust_score: { type: "integer", minimum: 0, maximum: 100 },
-    verdict: { type: "string", enum: ALLOWED_VERDICTS },
-    summary: { type: "string" },
-    red_flags: { type: "array", items: { type: "string" } },
-    green_flags: { type: "array", items: { type: "string" } },
-    confidence: { type: "string", enum: ALLOWED_CONFIDENCE },
-    sources: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          url: { type: "string" },
-          title: { type: "string" },
-          signal_type: { type: "string" },
-        },
-        required: ["url", "title", "signal_type"],
-        additionalProperties: false,
-      },
-    },
-  },
-  required: [
-    "trust_score",
-    "verdict",
-    "summary",
-    "red_flags",
-    "green_flags",
-    "confidence",
-    "sources",
-  ],
-  additionalProperties: false,
-} as const;
-
-const client = new Anthropic({ apiKey: env.ANTHROPIC_API_KEY });
+const client = new Groq({ apiKey: env.GROQ_API_KEY });
 
 export interface SynthesizedVerdict {
   trust_score: number;
@@ -101,28 +77,21 @@ export async function synthesizeVerdict(
     JSON.stringify(signals, null, 2),
   ].join("\n");
 
-  const response = await client.messages.create({
+  const response = await client.chat.completions.create({
     model: SYNTHESIS_MODEL,
     max_tokens: MAX_OUTPUT_TOKENS,
-    system: [
-      {
-        type: "text",
-        text: SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userContent },
     ],
-    messages: [{ role: "user", content: userContent }],
-    output_config: {
-      format: { type: "json_schema", schema: OUTPUT_SCHEMA },
-    },
   });
 
-  const textBlock = response.content.find((b) => b.type === "text");
-  if (!textBlock || textBlock.type !== "text") {
-    throw new Error("synthesis returned no text content");
-  }
+  const text = response.choices[0]?.message?.content;
+  if (!text) throw new Error("synthesis returned no content");
 
-  const parsed = JSON.parse(textBlock.text) as unknown;
+  const parsed = JSON.parse(text) as unknown;
   return validate(parsed);
 }
 
@@ -168,7 +137,9 @@ function sourceArray(v: unknown): Source[] {
     .map((s) => ({
       url: typeof s.url === "string" ? s.url : "",
       title: typeof s.title === "string" ? s.title : "",
-      signal_type: (typeof s.signal_type === "string" ? s.signal_type : "news") as Source["signal_type"],
+      signal_type: (typeof s.signal_type === "string"
+        ? s.signal_type
+        : "news") as Source["signal_type"],
     }))
     .filter((s) => s.url.length > 0);
 }
