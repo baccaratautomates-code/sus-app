@@ -1,0 +1,6 @@
+# Force hoisted (flat) node_modules layout across workspaces.
+# Bun 1.3 defaults to "isolated" (pnpm-style .bun/<hash>/node_modules/),
+# which Metro can't resolve through — it expects flat node_modules to walk
+# peer deps like expo-modules-core from inside expo.
+[install]
+linker = "hoisted"

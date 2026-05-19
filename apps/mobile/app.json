@@ -11,6 +11,12 @@
     },
     "android": {
       "package": "com.disruptorsmedia.sus"
+    },
+    "plugins": [
+      "expo-asset"
+    ],
+    "web": {
+      "bundler": "metro"
     }
   }
 }

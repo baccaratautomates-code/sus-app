@@ -258,7 +258,7 @@ Cut to ensure an 8–10 week launch window:
 - **Scraping layer:** A queue-based worker pool (BullMQ or QStash). Each signal scraper is an isolated worker. Concurrent fan-out per scan request.
 - **Synthesis:** Claude Haiku via the Anthropic API, with prompt caching enabled for the system prompt (the structured-output instructions are static — cache them).
 - **Cache + DB:** Postgres for users/scans/history; Redis for the 7-day URL verdict cache.
-- **Payments:** RevenueCat in front of Apple IAP + Google Play Billing — standard for cross-platform mobile subscription apps.
+- **Payments:** RevenueCat in front of Apple IAP + Google Play Billing — standard for cross-platform mobile subscription apps.w
 
 ### 8.2 Component boundaries
 
