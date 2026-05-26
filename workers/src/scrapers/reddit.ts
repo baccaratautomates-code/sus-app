@@ -46,7 +46,16 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
   );
 
   const allPosts = perSubreddit.flat().map((c) => c.data).filter((p): p is RedditPost => !!p);
-  const flagged = allPosts.filter((p) =>
+
+  // Reddit's full-text search returns posts that contain the query string anywhere,
+  // including unrelated documentation placeholders (e.g. "see example.com for details").
+  // Require the domain to actually appear in the post body/title before treating it
+  // as evidence about this seller.
+  const domainRe = new RegExp(`\\b${escapeRegex(domain)}\\b`, "i");
+  const aboutDomain = allPosts.filter((p) =>
+    domainRe.test(`${p.title ?? ""} ${p.selftext ?? ""}`),
+  );
+  const flagged = aboutDomain.filter((p) =>
     FLAG_TERMS.test(`${p.title ?? ""} ${p.selftext ?? ""}`),
   );
 
@@ -60,7 +69,7 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
     {
       type: "seller_reputation",
       weight: 0,
-      detail: `Reddit search for "${domain}" across r/${SUBREDDITS.join(", r/")}: ${allPosts.length} posts, ${flagged.length} mentioning scam/fake/fraud/legit.`,
+      detail: `Reddit search for "${domain}" across r/${SUBREDDITS.join(", r/")}: ${aboutDomain.length} posts actually mentioning the domain (of ${allPosts.length} returned), ${flagged.length} with scam/fake/fraud/legit context.`,
       source: baselineSource,
     },
   ];
@@ -91,6 +100,10 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
     signals,
     scraped_at: new Date().toISOString(),
   };
+}
+
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 async function searchSubreddit(sub: string, domain: string): Promise<RedditChild[]> {

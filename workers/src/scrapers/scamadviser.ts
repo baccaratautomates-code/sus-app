@@ -1,16 +1,14 @@
 import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
+import { emptyResult, extractDomain, fetchWithTimeout } from "./_lib";
 
-const API_URL = "https://api.scamadviser.com/v2/info";
-const API_TIMEOUT_MS = 10_000;
+// Scrapes the public Scamadviser report page directly — no paid API key required.
+// The page is server-rendered for SEO so the trust score is in the HTML, but the
+// exact markup changes occasionally; multiple fallback parsers below.
+
+const USER_AGENT = "Mozilla/5.0 (compatible; sus-app/0.1)";
+const PAGE_TIMEOUT_MS = 10_000;
 const LOW_TRUST_THRESHOLD = 50;
-
-interface ScamadviserResponse {
-  trust_score?: number;
-  is_suspicious?: boolean;
-  is_malware?: boolean;
-  country_code?: string;
-  website_age?: number | string;
-}
+const HIGH_TRUST_THRESHOLD = 80;
 
 interface ScraperInput {
   id: string;
@@ -18,79 +16,79 @@ interface ScraperInput {
 }
 
 export async function scamadviserScraper({ id, data }: ScraperInput): Promise<ScrapeResult> {
-  const apiKey = process.env.SCAMADVISER_API_KEY;
-  if (!apiKey) {
-    console.warn("[scamadviser] SCAMADVISER_API_KEY not set — returning empty result");
-    return emptyResult(id);
-  }
-
   const domain = extractDomain(data.target_url);
   if (!domain) {
-    console.warn(
-      `[scamadviser] could not extract domain from target_url="${data.target_url}" — empty result`,
-    );
-    return emptyResult(id);
+    console.warn(`[scamadviser] no domain from target_url="${data.target_url}" — empty result`);
+    return emptyResult("scamadviser", id);
   }
 
   console.log(`[scamadviser] lookup start: ${domain}`);
   const startedAt = Date.now();
 
-  let body: ScamadviserResponse;
+  const pageUrl = `https://www.scamadviser.com/check-website/${domain}`;
+
+  let html: string;
   try {
-    body = await fetchScamadviser(domain, apiKey);
+    const res = await fetchWithTimeout(pageUrl, {
+      headers: { "User-Agent": USER_AGENT, accept: "text/html" },
+      timeoutMs: PAGE_TIMEOUT_MS,
+    });
+    if (!res.ok) {
+      console.warn(`[scamadviser] HTTP ${res.status} for ${domain}`);
+      return emptyResult("scamadviser", id);
+    }
+    html = await res.text();
   } catch (err) {
-    console.error(
-      `[scamadviser] lookup failed for ${domain}: ${(err as Error).message}`,
-    );
-    return emptyResult(id);
+    console.error(`[scamadviser] fetch failed for ${domain}: ${(err as Error).message}`);
+    return emptyResult("scamadviser", id);
   }
 
+  const trustScore = parseTrustScore(html);
+
   const source: Source = {
-    url: `https://www.scamadviser.com/check-website/${domain}`,
+    url: pageUrl,
     title: `Scamadviser report for ${domain}`,
     signal_type: "seller_reputation",
   };
 
-  const signals: Signal[] = [
-    // Baseline — gives synthesis the raw data even when nothing is flagged.
-    {
+  const signals: Signal[] = [];
+
+  // Only emit signals when we have a parseable numeric trust score. The page's
+  // meta description and verdict text are marketing boilerplate ("Check x.com
+  // with our free review tool…") that contains generic words like "scams" and
+  // confuses synthesis into red-flagging legitimate domains. Score-only output
+  // is noisier-but-correct vs verdict-text-included which is louder-but-wrong.
+  if (trustScore !== null) {
+    signals.push({
       type: "seller_reputation",
       weight: 0,
-      detail: formatBaseline(domain, body),
-      source,
-    },
-  ];
-
-  if (typeof body.trust_score === "number" && body.trust_score < LOW_TRUST_THRESHOLD) {
-    signals.push({
-      type: "seller_reputation",
-      weight: 0.8,
-      detail: `Scamadviser trust score is ${body.trust_score}/100 — below the ${LOW_TRUST_THRESHOLD} threshold.`,
+      detail: `Scamadviser trust score for ${domain}: ${trustScore}/100.`,
       source,
     });
-  }
 
-  if (body.is_suspicious === true) {
-    signals.push({
-      type: "seller_reputation",
-      weight: 0.9,
-      detail: "Scamadviser flags this domain as suspicious.",
-      source,
-    });
-  }
-
-  if (body.is_malware === true) {
-    signals.push({
-      type: "seller_reputation",
-      weight: 1.0,
-      detail: "Scamadviser flags this domain for malware.",
-      source,
-    });
+    if (trustScore < LOW_TRUST_THRESHOLD) {
+      signals.push({
+        type: "seller_reputation",
+        weight: 0.8,
+        detail: `Scamadviser trust score is ${trustScore}/100 — below the ${LOW_TRUST_THRESHOLD} threshold typical for legitimate domains.`,
+        source,
+      });
+    } else if (trustScore >= HIGH_TRUST_THRESHOLD) {
+      // Surface a positive signal too. Synthesis needs both polarities to
+      // calibrate properly — without this, high-trust domains were being
+      // treated as "neutral" rather than "good".
+      signals.push({
+        type: "seller_reputation",
+        weight: -0.5, // negative weight = green-flag-direction
+        detail: `Scamadviser trust score is ${trustScore}/100 — strong positive trust rating.`,
+        source,
+      });
+    }
   }
 
   const elapsedMs = Date.now() - startedAt;
   console.log(
-    `[scamadviser] lookup done: ${domain} trust=${body.trust_score ?? "?"} suspicious=${body.is_suspicious ?? "?"} malware=${body.is_malware ?? "?"} signals=${signals.length} (${elapsedMs}ms)`,
+    `[scamadviser] lookup done: ${domain} trust=${trustScore ?? "?"} signals=${signals.length} (${elapsedMs}ms)`,
   );
 
   return {
@@ -101,58 +99,75 @@ export async function scamadviserScraper({ id, data }: ScraperInput): Promise<Sc
   };
 }
 
-async function fetchScamadviser(
-  domain: string,
-  apiKey: string,
-): Promise<ScamadviserResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-
-  try {
-    const url = `${API_URL}?domain=${encodeURIComponent(domain)}`;
-    const res = await fetch(url, {
-      headers: {
-        "x-api-key": apiKey,
-        accept: "application/json",
-      },
-      signal: controller.signal,
-    });
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status} ${res.statusText}`);
+// Scamadviser exposes the trust score in several places. Try the most stable first
+// (JSON-LD), then fall back to inline JSON, data-attributes, meta tags, and title.
+function parseTrustScore(html: string): number | null {
+  // 1. JSON-LD structured data (Schema.org Review or Rating)
+  const jsonLdBlocks = [
+    ...html.matchAll(/<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi),
+  ];
+  for (const m of jsonLdBlocks) {
+    try {
+      const node = JSON.parse(m[1]);
+      const candidates = Array.isArray(node) ? node : [node];
+      for (const c of candidates) {
+        const v = c?.aggregateRating?.ratingValue ?? c?.reviewRating?.ratingValue;
+        const n = sanitizeScore(v);
+        if (n !== null) return n;
+      }
+    } catch {
+      // Skip malformed JSON-LD blocks.
     }
-    return (await res.json()) as ScamadviserResponse;
-  } finally {
-    clearTimeout(timeoutId);
   }
+
+  // 2. Inline JSON state ("trust_score": 85, "trustScore":85, etc.)
+  const inlineJson = html.match(/["']?trust[_\s]?score["']?\s*[:=]\s*(\d{1,3})/i);
+  if (inlineJson) {
+    const n = sanitizeScore(inlineJson[1]);
+    if (n !== null) return n;
+  }
+
+  // 3. data-* attribute: <div data-score="85"> or data-trust-score
+  const dataAttr = html.match(/data-(?:trust-)?score\s*=\s*["'](\d{1,3})["']/i);
+  if (dataAttr) {
+    const n = sanitizeScore(dataAttr[1]);
+    if (n !== null) return n;
+  }
+
+  // 4. Meta description: "...trust score 85/100..."
+  const meta = matchMetaDescription(html);
+  if (meta) {
+    const m = meta.match(/trust\s*score[:\s]+(\d{1,3})/i);
+    if (m) {
+      const n = sanitizeScore(m[1]);
+      if (n !== null) return n;
+    }
+  }
+
+  // 5. Title tag: "Scamadviser: shein.com (85/100)"
+  const title = html.match(/<title>([^<]+)<\/title>/i);
+  if (title) {
+    const m = title[1].match(/(\d{1,3})\s*\/\s*100/);
+    if (m) {
+      const n = sanitizeScore(m[1]);
+      if (n !== null) return n;
+    }
+  }
+
+  return null;
 }
 
-function extractDomain(input: string): string | null {
-  try {
-    const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input}`;
-    const parsed = new URL(withScheme);
-    return parsed.hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return null;
-  }
+// Helper: try various locations to find the numeric trust score. Used above.
+function matchMetaDescription(html: string): string | null {
+  const m = html.match(
+    /<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i,
+  );
+  return m ? m[1] : null;
 }
 
-function formatBaseline(domain: string, body: ScamadviserResponse): string {
-  const parts = [`Scamadviser report for ${domain}`];
-  if (typeof body.trust_score === "number") {
-    parts.push(`trust score ${body.trust_score}/100`);
-  }
-  if (body.country_code) parts.push(`country ${body.country_code}`);
-  if (body.website_age !== undefined && body.website_age !== null) {
-    parts.push(`age ${body.website_age}`);
-  }
-  return parts.join(", ");
-}
-
-function emptyResult(id: string): ScrapeResult {
-  return {
-    source: "scamadviser",
-    job_id: id,
-    signals: [],
-    scraped_at: new Date().toISOString(),
-  };
+function sanitizeScore(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0 || n > 100) return null;
+  return Math.round(n);
 }

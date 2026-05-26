@@ -1,21 +1,37 @@
 import { Queue, QueueEvents } from "bullmq";
 import IORedis from "ioredis";
-import type { ScrapeJob, ScrapeResult } from "@sus/shared";
+import type { Marketplace, NormalizedInput, ScrapeJob, ScrapeResult } from "@sus/shared";
 import { env } from "./env";
 
 // v1 scraper sources — see docs/sus-prd.md §3.2.
 // Each scraper worker registers a job-name handler matching one of these.
+//
+// Marketplace-aware scrapers (shopee-seller, shopee-listing, …) only run when
+// the normalized input identifies them — they're gated below by MARKETPLACE_SCRAPERS.
 export const SCRAPE_SOURCES = [
   "trustpilot",
   "scamadviser",
   "reddit",
-  "dti-ph",
   "whois",
+  "wayback",
   "price-sanity",
   "review-authenticity",
   "internal-scam-db",
   "news",
+  // Marketplace-aware (conditionally enqueued)
+  "shopee-seller",
+  "shopee-listing",
+  "lazada-product",
 ] as const;
+
+// Which sources run only when the URL matches a specific marketplace. Sources
+// not in this map run for every scan. The keys are scraper names; the values
+// are the marketplace this scraper applies to.
+const MARKETPLACE_SCRAPERS: Partial<Record<(typeof SCRAPE_SOURCES)[number], Marketplace>> = {
+  "shopee-seller": "shopee-ph",
+  "shopee-listing": "shopee-ph",
+  "lazada-product": "lazada-ph",
+};
 
 export type ScrapeSource = (typeof SCRAPE_SOURCES)[number];
 
@@ -29,17 +45,34 @@ export async function fanOutScrapers(
   scanId: string,
   targetUrl: string,
   perJobTimeoutMs: number,
+  normalized: NormalizedInput | null,
 ): Promise<ScrapeResult[]> {
+  // Pick sources: always-on + marketplace-gated ones that match this URL.
+  const activeSources = SCRAPE_SOURCES.filter((source) => {
+    const requiredMarketplace = MARKETPLACE_SCRAPERS[source];
+    if (!requiredMarketplace) return true; // always-on scraper
+    return normalized?.marketplace === requiredMarketplace;
+  });
+
   console.log(
-    `[queue] fan-out scan=${scanId} target=${targetUrl} redis=${env.REDIS_URL} queue="${env.WORKER_QUEUE_NAME}"`,
+    `[queue] fan-out scan=${scanId} target=${targetUrl} marketplace=${normalized?.marketplace ?? "none"} redis=${env.REDIS_URL} queue="${env.WORKER_QUEUE_NAME}"`,
   );
   console.log(
-    `[queue] enqueueing ${SCRAPE_SOURCES.length} jobs: ${SCRAPE_SOURCES.join(", ")}`,
+    `[queue] enqueueing ${activeSources.length} jobs: ${activeSources.join(", ")}`,
   );
 
+  const baseJob = {
+    scan_id: scanId,
+    target_url: targetUrl,
+    domain: normalized?.domain ?? "",
+    marketplace: normalized?.marketplace ?? null,
+    shop_id: normalized?.shop_id ?? null,
+    item_id: normalized?.item_id ?? null,
+  };
+
   const jobs = await Promise.all(
-    SCRAPE_SOURCES.map((source) =>
-      queue.add(source, { scan_id: scanId, source, target_url: targetUrl }),
+    activeSources.map((source) =>
+      queue.add(source, { ...baseJob, source }),
     ),
   );
 

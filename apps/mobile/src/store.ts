@@ -4,8 +4,11 @@ import type { ScanResponse, Verdict } from "@sus/shared";
 // Dev API base. Web hits localhost directly; native (iOS/Android) needs the
 // host's LAN IP since "localhost" on a device/emulator points at itself.
 // Swap via env or a config screen when you stand up real deployments.
+// Set EXPO_PUBLIC_API_BASE in your .env to override for staging/production.
+// Dev fallback: web → localhost, native → your machine's LAN IP.
 const API_BASE =
-  Platform.OS === "web" ? "http://localhost:3000" : "http://192.168.1.6:3000";
+  process.env.EXPO_PUBLIC_API_BASE ??
+  (Platform.OS === "web" ? "http://localhost:3000" : "http://localhost:3000");
 
 export interface RecentScan {
   id: string;
@@ -15,32 +18,48 @@ export interface RecentScan {
 }
 
 // Mock in-memory state for the prototype. Replace with persistent storage later.
-// scansLeft / isPro / recentScans are read by HomeScreen, VerdictScreen, PaywallScreen.
+// scansLeft / isPro are read by HomeScreen, VerdictScreen, PaywallScreen.
+// recentScans is no longer used as the source of truth — HomeScreen now fetches
+// real history from GET /me/scans. Kept here as a typed empty fallback.
 export const mockState = {
-  // TODO: reset to 3 before production
-  scansLeft: 10,
+  // Dev: bumped from 3 to 999 so we don't hit the paywall while iterating.
+  // Real free-tier enforcement (3/mo) will move server-side once auth lands.
+  scansLeft: 999,
   isPro: false,
-  recentScans: [
-    {
-      id: "r1",
-      product_name: "Acme Wireless Earbuds Pro",
-      verdict: "Looks Legit" as Verdict,
-      scanned_at: "2026-05-18T14:22:00Z",
-    },
-    {
-      id: "r2",
-      product_name: "$12 'iPhone 15 Pro' from @giftshop_ph",
-      verdict: "High Risk" as Verdict,
-      scanned_at: "2026-05-17T09:11:00Z",
-    },
-    {
-      id: "r3",
-      product_name: "TikTok Shop weight-loss tea",
-      verdict: "Suspicious" as Verdict,
-      scanned_at: "2026-05-15T19:43:00Z",
-    },
-  ] as RecentScan[],
+  recentScans: [] as RecentScan[],
 };
+
+// Stand-in user identity. Replace with real auth user once that lands.
+export const CURRENT_USER_ID = "test-user";
+
+// GET /me/scans — returns the user's recent scans newest first.
+// Returns an empty array on any failure (network, server, etc.) so the UI just
+// shows the empty state instead of crashing.
+export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/me/scans?user_id=${encodeURIComponent(CURRENT_USER_ID)}&limit=${limit}`,
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as {
+      scans?: Array<{
+        id: string;
+        target: string;
+        verdict: Verdict;
+        scanned_at: string;
+      }>;
+    };
+    return (body.scans ?? []).map((s) => ({
+      id: s.id,
+      // Until product-name extraction exists, show the URL as the title.
+      product_name: s.target,
+      verdict: s.verdict,
+      scanned_at: s.scanned_at,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 // Real scan request. Pass an AbortSignal to cancel (used for timeout + unmount).
 export async function requestScan(

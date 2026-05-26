@@ -45,10 +45,41 @@ export interface ScanResponse {
   input: ScanRequest;
 }
 
+// Marketplace identifier — PRD §3.1 calls this out as one of the four fields
+// to extract during input normalization. Used by marketplace-aware scrapers to
+// decide whether they should run for this URL.
+export type Marketplace =
+  | "shopee-ph"
+  | "lazada-ph"
+  | "tiktok-shop"
+  | "amazon"
+  | "ebay"
+  | "facebook-marketplace"
+  | null;
+
+// Result of input normalization (PRD §3.1). Constructed by apps/api/src/normalize.ts
+// from a raw URL. Carries enough context for marketplace-specific scrapers to
+// fetch the right seller/product pages.
+export interface NormalizedInput {
+  url: string;                  // original URL (cleaned, trailing slashes etc.)
+  domain: string;               // registrable domain, e.g. "shopee.ph"
+  marketplace: Marketplace;     // null when URL isn't on a known marketplace
+  shop_id: string | null;       // marketplace-specific seller/shop identifier
+  item_id: string | null;       // marketplace-specific product/listing identifier
+}
+
 export interface ScrapeJob {
   scan_id: string;
   source: string;
   target_url: string;
+  // Normalized fields — populated by the input-normalization step at the API
+  // gateway before fan-out. Scrapers can use these directly without re-parsing.
+  domain: string;
+  marketplace: Marketplace;
+  shop_id: string | null;
+  item_id: string | null;
+  // Legacy optional fields kept for backward compatibility with scrapers that
+  // already accept enriched context (e.g. price-sanity using `product`).
   seller?: string;
   product?: string;
 }

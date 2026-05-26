@@ -1,6 +1,7 @@
 // @ts-expect-error — whois-json ships without bundled types
 import whois from "whois-json";
 import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
+import { extractDomain } from "./_lib";
 
 const DOMAIN_RECENT_THRESHOLD_DAYS = 90;
 const WHOIS_TIMEOUT_MS = 15_000;
@@ -82,7 +83,7 @@ export async function whoisScraper({ id, data }: ScraperInput): Promise<ScrapeRe
 
   const elapsedMs = Date.now() - startedAt;
   console.log(
-    `[whois] lookup done: ${domain} age=${ageDays ?? "?"}d registrar="${registrar}" privacy=${privacyProtected} signals=${signals.length} (${elapsedMs}ms)`,
+    `[whois] lookup done: ${domain} age=${ageDays ?? "?"}d registrar="${registrar ?? "?"}" privacy=${privacyProtected} signals=${signals.length} (${elapsedMs}ms)`,
   );
 
   return {
@@ -107,16 +108,6 @@ async function whoisWithTimeout(domain: string): Promise<Record<string, unknown>
   ]);
 }
 
-function extractDomain(input: string): string | null {
-  try {
-    const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input}`;
-    const parsed = new URL(withScheme);
-    return parsed.hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return null;
-  }
-}
-
 // whois-json returns a flat object with camelCased keys derived from the raw WHOIS
 // response. Field names vary by registry — check a handful of common ones.
 function parseAgeDays(record: Record<string, unknown>): number | null {
@@ -136,10 +127,8 @@ function parseAgeDays(record: Record<string, unknown>): number | null {
   return Math.max(0, Math.floor((Date.now() - createdMs) / 86_400_000));
 }
 
-function parseRegistrar(record: Record<string, unknown>): string {
-  return (
-    firstString(record, ["registrar", "sponsoringRegistrar", "registrarName"]) ?? "unknown"
-  );
+function parseRegistrar(record: Record<string, unknown>): string | null {
+  return firstString(record, ["registrar", "sponsoringRegistrar", "registrarName"]);
 }
 
 function isPrivacyProtected(record: Record<string, unknown>): boolean {
@@ -164,11 +153,16 @@ function firstString(record: Record<string, unknown>, keys: string[]): string | 
 function formatBaseline(
   domain: string,
   ageDays: number | null,
-  registrar: string,
+  registrar: string | null,
   privacyProtected: boolean,
 ): string {
-  const ageStr = ageDays !== null ? `${ageDays} days` : "unknown";
-  return `WHOIS for ${domain}: age ${ageStr}, registrar "${registrar}", privacy-protected: ${privacyProtected}`;
+  const parts = [`WHOIS for ${domain}`];
+  parts.push(`age ${ageDays !== null ? `${ageDays} days` : "not reported"}`);
+  // Only mention the registrar if we actually parsed one. "unknown registrar" gets
+  // misread by the model as a red flag rather than missing data.
+  if (registrar) parts.push(`registrar "${registrar}"`);
+  parts.push(`privacy-protected: ${privacyProtected}`);
+  return parts.join(", ");
 }
 
 function emptyResult(id: string): ScrapeResult {

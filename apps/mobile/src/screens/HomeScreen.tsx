@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import {
   Pressable,
   ScrollView,
@@ -8,14 +8,30 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { VerdictBadge } from "../components/VerdictBadge";
-import { mockState } from "../store";
+import { fetchRecentScans, mockState, type RecentScan } from "../store";
 import { colors } from "../theme";
 import type { ScreenProps } from "../navigation";
 
 export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
   const [url, setUrl] = useState("");
   const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
+  const [recentScans, setRecentScans] = useState<RecentScan[]>([]);
+
+  // Refresh recent scans every time Home regains focus — after a scan completes
+  // the user backs out of the Verdict screen, so this is when fresh data lands.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      fetchRecentScans(3).then((scans) => {
+        if (!cancelled) setRecentScans(scans);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   const onCheck = () => {
     const trimmed = url.trim();
@@ -67,14 +83,18 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
 
         <View style={styles.recentSection}>
           <Text style={styles.sectionHeading}>Recent scans</Text>
-          {mockState.recentScans.slice(0, 3).map((scan) => (
-            <View key={scan.id} style={styles.recentRow}>
-              <Text style={styles.recentName} numberOfLines={1}>
-                {scan.product_name}
-              </Text>
-              <VerdictBadge verdict={scan.verdict} size="sm" />
-            </View>
-          ))}
+          {recentScans.length === 0 ? (
+            <Text style={styles.recentEmpty}>No scans yet — paste a link above to get started.</Text>
+          ) : (
+            recentScans.map((scan) => (
+              <View key={scan.id} style={styles.recentRow}>
+                <Text style={styles.recentName} numberOfLines={1}>
+                  {scan.product_name}
+                </Text>
+                <VerdictBadge verdict={scan.verdict} size="sm" />
+              </View>
+            ))
+          )}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -144,4 +164,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   recentName: { color: colors.text, fontSize: 15, flex: 1 },
+  recentEmpty: {
+    color: colors.textDim,
+    fontSize: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    fontStyle: "italic",
+  },
 });

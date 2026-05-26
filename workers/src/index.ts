@@ -7,12 +7,16 @@ import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { ScrapeJob, ScrapeResult } from "@sus/shared";
 import { internalScamDbScraper } from "./scrapers/internal-scam-db";
+import { lazadaProductScraper } from "./scrapers/lazada-product";
 import { newsScraper } from "./scrapers/news";
 import { priceSanityScraper } from "./scrapers/price-sanity";
 import { redditScraper } from "./scrapers/reddit";
 import { reviewAuthenticityScraper } from "./scrapers/review-authenticity";
 import { scamadviserScraper } from "./scrapers/scamadviser";
+import { shopeeListingScraper } from "./scrapers/shopee-listing";
+import { shopeeSellerScraper } from "./scrapers/shopee-seller";
 import { trustpilotScraper } from "./scrapers/trustpilot";
+import { waybackScraper } from "./scrapers/wayback";
 import { whoisScraper } from "./scrapers/whois";
 
 const REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
@@ -35,14 +39,17 @@ type ScraperFn = (input: { id: string; data: ScrapeJob }) => Promise<ScrapeResul
 
 const SCRAPERS: Record<string, ScraperFn> = {
   "internal-scam-db": internalScamDbScraper,
+  "lazada-product": lazadaProductScraper,
   news: newsScraper,
   "price-sanity": priceSanityScraper,
   reddit: redditScraper,
   "review-authenticity": reviewAuthenticityScraper,
   scamadviser: scamadviserScraper,
+  "shopee-listing": shopeeListingScraper,
+  "shopee-seller": shopeeSellerScraper,
   trustpilot: trustpilotScraper,
+  wayback: waybackScraper,
   whois: whoisScraper,
-  // Remaining unimplemented: dti-ph
 };
 
 const worker = new Worker<ScrapeJob, ScrapeResult>(

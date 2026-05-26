@@ -10,12 +10,13 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { VerdictBadge } from "../components/VerdictBadge";
-import { mockState } from "../store";
+import { usePro } from "../context/ProContext";
 import { DISCLAIMER, colors, verdictColor } from "../theme";
 import type { ScreenProps } from "../navigation";
 
 export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdict">) {
   const { result } = route.params;
+  const { isPro } = usePro();
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
   const color = verdictColor(result.verdict);
@@ -31,7 +32,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   const onShare = () => Alert.alert("Share", "Share verdict — coming soon");
   const onSave = () => Alert.alert("Saved", "Saved to your history");
   const onWatch = () => {
-    if (!mockState.isPro) navigation.navigate("Paywall");
+    if (!isPro) navigation.navigate("Paywall");
     else Alert.alert("Watching", "We'll alert you if new red flags emerge");
   };
 
@@ -92,7 +93,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
           <ActionButton
             label="Watch"
             onPress={onWatch}
-            proBadge={!mockState.isPro}
+            proBadge={!isPro}
           />
         </View>
 

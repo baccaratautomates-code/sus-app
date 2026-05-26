@@ -1,15 +1,17 @@
 // Shared helpers used by multiple scrapers. The leading underscore in the filename
 // keeps it out of the alphabetical scraper listing in folder views.
+import { getDomain } from "tldts";
 import type { ScrapeResult } from "@sus/shared";
 
+// Returns the registrable domain (eTLD+1), e.g.:
+//   "https://ph.shein.com/foo"   -> "shein.com"
+//   "https://m.amazon.com/dp/X"  -> "amazon.com"
+//   "https://shopee.com.ph/seller" -> "shopee.com.ph"  (handles multi-level TLDs)
+//   "https://bbc.co.uk"          -> "bbc.co.uk"
+// Returns null when the input has no parseable host or no valid public suffix.
 export function extractDomain(input: string): string | null {
-  try {
-    const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input}`;
-    const parsed = new URL(withScheme);
-    return parsed.hostname.replace(/^www\./i, "").toLowerCase();
-  } catch {
-    return null;
-  }
+  const withScheme = /^https?:\/\//i.test(input) ? input : `https://${input}`;
+  return getDomain(withScheme, { validHosts: ["localhost"] });
 }
 
 export function emptyResult(source: string, jobId: string): ScrapeResult {
