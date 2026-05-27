@@ -22,6 +22,10 @@ export const SCRAPE_SOURCES = [
   "shopee-seller",
   "shopee-listing",
   "lazada-product",
+  "tiktok-shop",
+  "temu-listing",
+  "facebook-page",
+  "instagram-profile",
 ] as const;
 
 // Which sources run only when the URL matches a specific marketplace. Sources
@@ -31,6 +35,10 @@ const MARKETPLACE_SCRAPERS: Partial<Record<(typeof SCRAPE_SOURCES)[number], Mark
   "shopee-seller": "shopee-ph",
   "shopee-listing": "shopee-ph",
   "lazada-product": "lazada-ph",
+  "tiktok-shop": "tiktok-shop",
+  "temu-listing": "temu",
+  "facebook-page": "facebook",
+  "instagram-profile": "instagram",
 };
 
 export type ScrapeSource = (typeof SCRAPE_SOURCES)[number];

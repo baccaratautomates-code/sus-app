@@ -52,9 +52,11 @@ export type Marketplace =
   | "shopee-ph"
   | "lazada-ph"
   | "tiktok-shop"
+  | "temu"
+  | "facebook"             // FB Page / Marketplace / Ads — all funnel here
+  | "instagram"            // IG Profile / Reel / Post
   | "amazon"
   | "ebay"
-  | "facebook-marketplace"
   | null;
 
 // Result of input normalization (PRD §3.1). Constructed by apps/api/src/normalize.ts

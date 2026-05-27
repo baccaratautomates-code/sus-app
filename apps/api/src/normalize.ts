@@ -30,6 +30,9 @@ export function normalizeInput(rawUrl: string): NormalizedInput | null {
     parseShopeePh(parsed, domain) ??
     parseLazadaPh(parsed, domain) ??
     parseTiktokShop(parsed, domain) ??
+    parseTemu(parsed, domain) ??
+    parseFacebook(parsed, domain) ??
+    parseInstagram(parsed, domain) ??
     genericFallback(withScheme, domain)
   );
 }
@@ -137,17 +140,163 @@ function parseLazadaPh(url: URL, domain: string): NormalizedInput | null {
   };
 }
 
-// TikTok Shop stub.
+// TikTok / TikTok Shop URL patterns. The marketplace ID is the @username
+// (without the "@") — that's how TikTok identifies sellers. Video IDs become
+// item_id when present.
+//   https://www.tiktok.com/@username
+//   https://www.tiktok.com/@username/video/<video_id>
+//   https://www.tiktok.com/t/<short_id>             (short share link — opaque)
+//   https://shop.tiktok.com/...                     (the actual shop subdomain)
+//   https://vt.tiktok.com/<short_id>                (alternative short share)
 function parseTiktokShop(url: URL, domain: string): NormalizedInput | null {
-  if (domain !== "tiktok.com" && domain !== "shop.tiktok.com") return null;
+  const isTiktokDomain =
+    domain === "tiktok.com" ||
+    domain === "vt.tiktok.com"; // shortener
+  if (!isTiktokDomain) return null;
 
-  // /@username path
-  const userMatch = url.pathname.match(/^\/@([^\/]+)/);
+  // /@username[/video/<id>]
+  const usernameVideo = url.pathname.match(/^\/@([^\/]+)(?:\/video\/(\d+))?/);
+  if (usernameVideo) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "tiktok-shop",
+      shop_id: usernameVideo[1],
+      item_id: usernameVideo[2] ?? null,
+    };
+  }
+
+  // Short share / opaque URLs — we know it's TikTok but can't resolve until fetched.
   return {
     url: url.toString(),
     domain,
     marketplace: "tiktok-shop",
-    shop_id: userMatch ? userMatch[1] : null,
+    shop_id: null,
+    item_id: null,
+  };
+}
+
+// Temu is effectively single-seller (PDD Holdings sells everything), so we
+// only track the listing identifier — there's no shop_id meaningfully separate
+// from the platform. URL patterns:
+//   https://www.temu.com/<product-slug>-g-<goods_id>.html
+//   https://www.temu.com/<region>/<product-slug>-g-<goods_id>.html
+//   https://www.temu.com/-g-<goods_id>.html                    (bare)
+// Short share links (share.temu.com/...) are opaque and stay null.
+function parseTemu(url: URL, domain: string): NormalizedInput | null {
+  if (domain !== "temu.com") return null;
+
+  const goodsMatch = url.pathname.match(/-g-(\d+)\.html$/i);
+  return {
+    url: url.toString(),
+    domain,
+    marketplace: "temu",
+    shop_id: null,
+    item_id: goodsMatch ? goodsMatch[1] : null,
+  };
+}
+
+// Facebook URL patterns (pages, marketplace, ads):
+//   https://www.facebook.com/<page_handle>
+//   https://www.facebook.com/<numeric_id>
+//   https://www.facebook.com/marketplace/item/<item_id>/
+//   https://www.facebook.com/marketplace/<location>/item/<item_id>/
+//   https://m.facebook.com/...                    (mobile mirror)
+//   https://fb.com/...                            (shortener — same content)
+//   https://www.facebook.com/profile.php?id=<id>
+function parseFacebook(url: URL, domain: string): NormalizedInput | null {
+  const isFb =
+    domain === "facebook.com" ||
+    domain === "fb.com" ||
+    domain === "fb.me";
+  if (!isFb) return null;
+
+  const path = url.pathname;
+
+  // Marketplace listing
+  const marketplaceMatch = path.match(/\/marketplace\/(?:[^\/]+\/)?item\/(\d+)/i);
+  if (marketplaceMatch) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "facebook",
+      shop_id: null,                // FB marketplace listings rarely expose the seller publicly
+      item_id: marketplaceMatch[1],
+    };
+  }
+
+  // profile.php?id=...
+  const profileId = url.searchParams.get("id");
+  if (path === "/profile.php" && profileId && /^\d+$/.test(profileId)) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "facebook",
+      shop_id: profileId,
+      item_id: null,
+    };
+  }
+
+  // Page or numeric id at the root (handle)
+  const handleMatch = path.match(/^\/([A-Za-z0-9\.\-_]+)\/?$/);
+  if (handleMatch) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "facebook",
+      shop_id: handleMatch[1],
+      item_id: null,
+    };
+  }
+
+  return {
+    url: url.toString(),
+    domain,
+    marketplace: "facebook",
+    shop_id: null,
+    item_id: null,
+  };
+}
+
+// Instagram URL patterns:
+//   https://www.instagram.com/<username>/         (profile)
+//   https://www.instagram.com/p/<post_id>/        (feed post)
+//   https://www.instagram.com/reel/<reel_id>/
+//   https://www.instagram.com/tv/<tv_id>/
+function parseInstagram(url: URL, domain: string): NormalizedInput | null {
+  if (domain !== "instagram.com") return null;
+
+  const path = url.pathname;
+
+  // /p/<id>/, /reel/<id>/, /tv/<id>/ — post / reel / IGTV
+  const postMatch = path.match(/^\/(?:p|reel|tv)\/([^\/]+)/);
+  if (postMatch) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "instagram",
+      shop_id: null,                // resolved during fetch
+      item_id: postMatch[1],
+    };
+  }
+
+  // /<username>/ — profile (also reachable via /stories/<username>/ etc., catch the simple case)
+  const profileMatch = path.match(/^\/([A-Za-z0-9_\.]+)\/?$/);
+  if (profileMatch && profileMatch[1].toLowerCase() !== "explore") {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "instagram",
+      shop_id: profileMatch[1],
+      item_id: null,
+    };
+  }
+
+  return {
+    url: url.toString(),
+    domain,
+    marketplace: "instagram",
+    shop_id: null,
     item_id: null,
   };
 }

@@ -11,8 +11,13 @@ CREATE TABLE IF NOT EXISTS users (
   scans_this_month  INTEGER NOT NULL DEFAULT 0,
   -- Tracks the first-of-month UTC boundary the counter was last reset against.
   -- The API resets scans_this_month to 0 on the first scan of a new calendar month.
-  last_reset_at     TIMESTAMPTZ NOT NULL DEFAULT date_trunc('month', now() AT TIME ZONE 'UTC')
+  last_reset_at     TIMESTAMPTZ NOT NULL DEFAULT date_trunc('month', now() AT TIME ZONE 'UTC'),
+  -- Pro entitlement, driven by the RevenueCat webhook. PRD §6.4: free=3/mo, Pro=unlimited.
+  is_pro            BOOLEAN NOT NULL DEFAULT false
 );
+
+-- Idempotent column add for installs that predate is_pro.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS is_pro BOOLEAN NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS scans (
   id            TEXT PRIMARY KEY,

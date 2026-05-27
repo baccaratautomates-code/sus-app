@@ -3,7 +3,10 @@ import { cors } from "hono/cors";
 import Groq from "groq-sdk";
 import type { ScanRequest } from "@sus/shared";
 import { bootstrapSchema, sql } from "./db";
+import { env } from "./env";
+import { checkQuota, consumeQuota } from "./quota";
 import { runScan } from "./scan";
+import { handleRevenueCatEvent } from "./webhook";
 
 // Run schema bootstrap at module load. If the DB is unreachable we log loudly
 // but DO NOT exit — the API still serves scans without persistence. Recent-scans
@@ -76,9 +79,37 @@ app.post("/scan", async (c) => {
   const parsed = parseScanRequest(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
+  // Quota gate (PRD §6.4). DB failures here silent-degrade — we'd rather serve
+  // free scans than take the product down because Supabase blipped.
+  let quotaIsPro = false;
+  try {
+    const quota = await checkQuota(parsed.value.user_id);
+    quotaIsPro = quota.isPro;
+    if (!quota.allowed) {
+      return c.json(
+        {
+          error: "quota_exceeded",
+          message: quota.reason ?? "Free quota exceeded.",
+          scans_used: quota.scansUsed,
+          scans_remaining: 0,
+          is_pro: quota.isPro,
+        },
+        402,
+      );
+    }
+  } catch (err) {
+    console.error(`[scan] quota check failed user=${parsed.value.user_id}: ${(err as Error).message} — allowing scan (silent degrade)`);
+  }
+
   try {
     const response = await runScan(parsed.value);
-    return c.json(response);
+    // Only consume quota on successful scan. Failures don't count.
+    try {
+      await consumeQuota(parsed.value.user_id);
+    } catch (err) {
+      console.error(`[scan] consumeQuota failed user=${parsed.value.user_id}: ${(err as Error).message}`);
+    }
+    return c.json({ ...response, is_pro: quotaIsPro });
   } catch (err) {
     if (err instanceof Groq.APIError) {
       console.error(`[scan] groq ${err.status}: ${err.message}`);
@@ -87,6 +118,37 @@ app.post("/scan", async (c) => {
     console.error("[scan] failed", err);
     return c.json({ error: "scan failed" }, 500);
   }
+});
+
+// RevenueCat webhook. Configure the URL + Authorization header in the RC dashboard
+// (Project Settings → Integrations → Webhooks). Set REVENUECAT_WEBHOOK_SECRET in
+// the API env to the value you put in the dashboard's "Authorization header" field.
+//
+// Without the secret set, this returns 503 so accidental requests don't pass through.
+app.post("/webhooks/revenuecat", async (c) => {
+  if (!env.REVENUECAT_WEBHOOK_SECRET) {
+    console.warn("[webhook] received RC event but REVENUECAT_WEBHOOK_SECRET not set");
+    return c.json({ error: "webhook not configured" }, 503);
+  }
+  const auth = c.req.header("authorization") ?? "";
+  if (auth !== `Bearer ${env.REVENUECAT_WEBHOOK_SECRET}`) {
+    console.warn(`[webhook] auth mismatch (got "${auth.slice(0, 12)}...")`);
+    return c.json({ error: "unauthorized" }, 401);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid json" }, 400);
+  }
+
+  const result = await handleRevenueCatEvent(body);
+  if (!result.ok) {
+    console.warn(`[webhook] rejected: ${result.reason}`);
+    return c.json({ error: result.reason }, result.status as 400 | 401 | 500);
+  }
+  return c.json({ ok: true });
 });
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; error: string };

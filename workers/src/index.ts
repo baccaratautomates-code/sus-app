@@ -6,6 +6,8 @@ config();
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { ScrapeJob, ScrapeResult } from "@sus/shared";
+import { facebookPageScraper } from "./scrapers/facebook-page";
+import { instagramProfileScraper } from "./scrapers/instagram-profile";
 import { internalScamDbScraper } from "./scrapers/internal-scam-db";
 import { lazadaProductScraper } from "./scrapers/lazada-product";
 import { newsScraper } from "./scrapers/news";
@@ -15,6 +17,8 @@ import { reviewAuthenticityScraper } from "./scrapers/review-authenticity";
 import { scamadviserScraper } from "./scrapers/scamadviser";
 import { shopeeListingScraper } from "./scrapers/shopee-listing";
 import { shopeeSellerScraper } from "./scrapers/shopee-seller";
+import { temuListingScraper } from "./scrapers/temu-listing";
+import { tiktokShopScraper } from "./scrapers/tiktok-shop";
 import { trustpilotScraper } from "./scrapers/trustpilot";
 import { waybackScraper } from "./scrapers/wayback";
 import { whoisScraper } from "./scrapers/whois";
@@ -38,6 +42,8 @@ connection.on("reconnecting", () => console.warn("[workers] redis reconnectingâ€
 type ScraperFn = (input: { id: string; data: ScrapeJob }) => Promise<ScrapeResult>;
 
 const SCRAPERS: Record<string, ScraperFn> = {
+  "facebook-page": facebookPageScraper,
+  "instagram-profile": instagramProfileScraper,
   "internal-scam-db": internalScamDbScraper,
   "lazada-product": lazadaProductScraper,
   news: newsScraper,
@@ -47,6 +53,8 @@ const SCRAPERS: Record<string, ScraperFn> = {
   scamadviser: scamadviserScraper,
   "shopee-listing": shopeeListingScraper,
   "shopee-seller": shopeeSellerScraper,
+  "temu-listing": temuListingScraper,
+  "tiktok-shop": tiktokShopScraper,
   trustpilot: trustpilotScraper,
   wayback: waybackScraper,
   whois: whoisScraper,
