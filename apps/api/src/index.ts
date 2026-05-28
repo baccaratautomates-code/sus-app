@@ -130,8 +130,12 @@ app.post("/webhooks/revenuecat", async (c) => {
     console.warn("[webhook] received RC event but REVENUECAT_WEBHOOK_SECRET not set");
     return c.json({ error: "webhook not configured" }, 503);
   }
+  // RC's "Authorization header value" field in the dashboard becomes the LITERAL
+  // value of the Authorization header — it is NOT prefixed with "Bearer ".
+  // Accept either form so misconfigured "Bearer <secret>" entries still work.
   const auth = c.req.header("authorization") ?? "";
-  if (auth !== `Bearer ${env.REVENUECAT_WEBHOOK_SECRET}`) {
+  const expected = env.REVENUECAT_WEBHOOK_SECRET;
+  if (auth !== expected && auth !== `Bearer ${expected}`) {
     console.warn(`[webhook] auth mismatch (got "${auth.slice(0, 12)}...")`);
     return c.json({ error: "unauthorized" }, 401);
   }

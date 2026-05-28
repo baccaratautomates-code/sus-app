@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { ScanRequest, ScanResponse, Source } from "@sus/shared";
+import type { ScanRequest, ScanResponse, Signal, Source } from "@sus/shared";
 import { getCachedVerdict, setCachedVerdict } from "./cache";
 import { sql } from "./db";
 import { normalizeInput } from "./normalize";
@@ -8,6 +8,13 @@ import { flattenSignals, synthesizeVerdict } from "./synthesis";
 
 const SCRAPER_TIMEOUT_MS = 25_000;
 const MIN_SOURCE_COVERAGE = 3;
+
+// Structural platform-risk signals (FB Marketplace, IG shop) emit detail text
+// matching this phrase. Used to detect the case where the only non-zero-weight
+// evidence is "this is on a structurally risky platform" with nothing about the
+// specific seller — that situation must NOT drive a Suspicious/High Risk verdict
+// (PRD §5 defamation safety).
+const STRUCTURAL_RISK_MARKER = /PRD §3\.2 flags/;
 
 function cacheTarget(req: ScanRequest): string {
   if (req.kind === "url") return req.url ?? "";
@@ -59,10 +66,36 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const results = await fanOutScrapers(scanId, target, SCRAPER_TIMEOUT_MS, normalized);
 
   // 3. Insufficient data → "Not Enough Info". Never default to Looks Legit.
-  const { sources } = flattenSignals(results);
+  const { signals, sources } = flattenSignals(results);
   const distinctSourceUrls = new Set(sources.map((s) => s.url)).size;
   if (distinctSourceUrls < MIN_SOURCE_COVERAGE) {
     const response = notEnoughInfo(req, sources);
+    await setCachedVerdict(target, response);
+    await persistScan(req, target, response);
+    return response;
+  }
+
+  // 3a. Structural-only guard (PRD §5 defamation safety). If the only non-zero
+  //     weight signal is "this seller is on a structurally risky platform" (FB
+  //     Marketplace / IG shop), we cannot justify Suspicious/High Risk — we have
+  //     no evidence about THIS seller specifically. Return Not Enough Info with
+  //     the platform risk surfaced as a caveat in the summary.
+  if (isStructuralRiskOnly(signals)) {
+    console.warn(
+      `[scan] structural-risk-only signals — downgrading to Not Enough Info (PRD §5)`,
+    );
+    const caveat = signals.find((s) => STRUCTURAL_RISK_MARKER.test(s.detail))?.detail ?? "";
+    const response: ScanResponse = {
+      trust_score: 0,
+      verdict: "Not Enough Info",
+      summary: `We couldn't find evidence specific to this seller. ${caveat} Treat with caution and check reviews or seller history before purchasing.`,
+      red_flags: [],
+      green_flags: [],
+      confidence: "Low",
+      sources,
+      scanned_at: new Date().toISOString(),
+      input: req,
+    };
     await setCachedVerdict(target, response);
     await persistScan(req, target, response);
     return response;
@@ -112,6 +145,16 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   await setCachedVerdict(target, response);
   await persistScan(req, target, response);
   return response;
+}
+
+// Returns true when every non-zero-weight signal is a structural platform-risk
+// caveat (FB Marketplace / IG shop default risk) with no specific evidence about
+// this seller. In that case the verdict must NOT be Suspicious/High Risk — the
+// platform's structural risk is not evidence against a specific human seller.
+function isStructuralRiskOnly(signals: Signal[]): boolean {
+  const nonZero = signals.filter((s) => s.weight !== 0);
+  if (nonZero.length === 0) return false; // no leaning signals at all — let synthesis handle
+  return nonZero.every((s) => STRUCTURAL_RISK_MARKER.test(s.detail));
 }
 
 // Upsert the user row, then insert a scan record. Persistence failure is logged
