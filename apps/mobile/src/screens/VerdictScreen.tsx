@@ -90,14 +90,24 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
-        <Pressable
-          onPress={() => navigation.goBack()}
-          hitSlop={8}
-          style={styles.brand}
-        >
-          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-          <Text style={styles.brandName}>Sus</Text>
-        </Pressable>
+        <View style={styles.headerLeft}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            hitSlop={12}
+            style={({ pressed }) => [
+              styles.backBtn,
+              { opacity: pressed ? 0.6 : 1 },
+            ]}
+            accessibilityLabel="Back"
+            accessibilityRole="button"
+          >
+            <MaterialIcons name="arrow-back" size={24} color={colors.text} />
+          </Pressable>
+          <View style={styles.brand}>
+            <MaterialIcons name="verified-user" size={28} color={colors.primary} />
+            <Text style={styles.brandName}>Sus</Text>
+          </View>
+        </View>
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
             {mockState.scansLeft} scans left
@@ -288,6 +298,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceContainerHighest,
+  },
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceContainerLow,
   },
   brand: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   brandName: {
