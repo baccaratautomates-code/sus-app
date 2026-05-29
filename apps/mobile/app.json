@@ -13,8 +13,20 @@
       "package": "com.disruptorsmedia.sus"
     },
     "plugins": [
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-share-intent",
+        {
+          "iosShareExtensionName": "Check on Sus",
+          "iosActivationRules": {
+            "NSExtensionActivationSupportsText": true,
+            "NSExtensionActivationSupportsWebURLWithMaxCount": 1
+          },
+          "androidIntentFilters": ["text/*"]
+        }
+      ]
     ],
+    "scheme": "sus",
     "web": {
       "bundler": "metro"
     }

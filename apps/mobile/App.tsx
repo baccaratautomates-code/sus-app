@@ -8,9 +8,10 @@ import LoadingScreen from "./src/screens/LoadingScreen";
 import VerdictScreen from "./src/screens/VerdictScreen";
 import PaywallScreen from "./src/screens/PaywallScreen";
 import { colors } from "./src/theme";
-import type { RootStackParamList } from "./src/navigation";
+import { navigationRef, type RootStackParamList } from "./src/navigation";
 import { initializePurchases } from "./src/purchases";
 import { ProProvider } from "./src/context/ProContext";
+import { ShareTargetHandler } from "./src/components/ShareTargetHandler";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -36,8 +37,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <ProProvider>
-        <NavigationContainer theme={navTheme}>
+        <NavigationContainer ref={navigationRef} theme={navTheme}>
           <StatusBar style="dark" />
+          <ShareTargetHandler />
           <Stack.Navigator
             screenOptions={{
               headerStyle: { backgroundColor: colors.surface },
