@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(bun --bun tsc --noEmit -p apps/api/tsconfig.json)"
+      "Bash(bun --bun tsc --noEmit -p apps/api/tsconfig.json)",
+      "Bash(bun build *)"
     ]
   }
 }

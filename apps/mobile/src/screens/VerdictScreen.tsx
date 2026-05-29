@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useState } from "react";
 import {
   Alert,
@@ -9,25 +10,73 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import type { Confidence, Verdict } from "@sus/shared";
+import { BottomNav } from "../components/BottomNav";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
-import { DISCLAIMER, colors, verdictColor } from "../theme";
+import { mockState } from "../store";
+import {
+  DISCLAIMER,
+  colors,
+  elevation,
+  onVerdictContainerColor,
+  radius,
+  spacing,
+  typography,
+  verdictColor,
+  verdictContainerColor,
+} from "../theme";
 import type { ScreenProps } from "../navigation";
+
+// Icon used in the flag rows. Picked to match the verdict's emotional tone.
+function flagIcon(verdict: Verdict): keyof typeof MaterialIcons.glyphMap {
+  switch (verdict) {
+    case "Looks Legit":
+      return "check-circle";
+    case "Suspicious":
+      return "warning-amber";
+    case "High Risk":
+      return "error-outline";
+    case "Not Enough Info":
+      return "help-outline";
+  }
+}
+
+function confidenceLevel(c: Confidence): number {
+  switch (c) {
+    case "High":
+      return 3;
+    case "Medium":
+      return 2;
+    case "Low":
+      return 1;
+  }
+}
 
 export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdict">) {
   const { result } = route.params;
   const { isPro } = usePro();
   const [sourcesOpen, setSourcesOpen] = useState(false);
 
-  const color = verdictColor(result.verdict);
-  const flags =
-    result.red_flags.length > 0
-      ? { items: result.red_flags.slice(0, 3), color: colors.highRisk, label: "Red flags" }
-      : {
-          items: result.green_flags.slice(0, 3),
-          color: colors.legit,
-          label: "Green flags",
-        };
+  const accent = verdictColor(result.verdict);
+  const accentContainer = verdictContainerColor(result.verdict);
+  const onAccentContainer = onVerdictContainerColor(result.verdict);
+
+  // For "Looks Legit" we lead with green flags; for everything else, red flags
+  // are the story. "Not Enough Info" intentionally has nothing to say either way.
+  const showRedFlags =
+    result.verdict === "Suspicious" || result.verdict === "High Risk";
+  const showGreenFlags = result.verdict === "Looks Legit";
+  const flagItems = showRedFlags
+    ? result.red_flags.slice(0, 3)
+    : showGreenFlags
+      ? result.green_flags.slice(0, 3)
+      : [];
+  const flagsHeading = showRedFlags
+    ? "Red flags"
+    : showGreenFlags
+      ? "Green flags"
+      : "";
 
   const onShare = () => Alert.alert("Share", "Share verdict — coming soon");
   const onSave = () => Alert.alert("Saved", "Saved to your history");
@@ -36,88 +85,188 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
     else Alert.alert("Watching", "We'll alert you if new red flags emerge");
   };
 
+  const confLvl = confidenceLevel(result.confidence);
+
   return (
-    <SafeAreaView style={styles.container} edges={["bottom"]}>
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <View style={styles.appHeader}>
+        <Pressable
+          onPress={() => navigation.goBack()}
+          hitSlop={8}
+          style={styles.brand}
+        >
+          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
+          <Text style={styles.brandName}>Sus</Text>
+        </Pressable>
+        <View style={styles.scansPill}>
+          <Text style={styles.scansPillText}>
+            {mockState.scansLeft} scans left
+          </Text>
+        </View>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.scoreWrap}>
-          <View style={[styles.scoreCircle, { borderColor: color }]}>
-            <Text style={[styles.scoreNumber, { color }]}>{result.trust_score}</Text>
-            <Text style={styles.scoreLabel}>TRUST SCORE</Text>
-          </View>
+        {/* Verdict card */}
+        <View style={[styles.card, { borderColor: accentContainer }]}>
           <VerdictBadge verdict={result.verdict} />
-          <Text style={styles.confidence}>Confidence: {result.confidence}</Text>
+
+          <View style={styles.scoreRow}>
+            <Text style={[styles.scoreNumber, { color: colors.primary }]}>
+              {result.trust_score}
+            </Text>
+            <Text style={styles.scoreOutOf}>/ 100</Text>
+          </View>
+
+          <View style={styles.confidenceRow}>
+            <Text style={styles.confidenceLabel}>CONFIDENCE</Text>
+            <View style={styles.confidenceDots}>
+              {[1, 2, 3].map((i) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.confidenceDot,
+                    {
+                      backgroundColor:
+                        i <= confLvl ? accent : colors.surfaceContainerHighest,
+                    },
+                  ]}
+                />
+              ))}
+            </View>
+            <Text style={[styles.confidenceValue, { color: accent }]}>
+              {result.confidence}
+            </Text>
+          </View>
+
+          <Text style={styles.summary}>{result.summary}</Text>
+
+          {flagItems.length > 0 && (
+            <View style={styles.flagsSection}>
+              <Text style={styles.flagsHeading}>
+                {flagsHeading.toUpperCase()}
+              </Text>
+              {flagItems.map((flag, i) => (
+                <View key={i} style={styles.flagRow}>
+                  <View style={styles.flagLeft}>
+                    <MaterialIcons
+                      name={flagIcon(result.verdict)}
+                      size={20}
+                      color={accent}
+                    />
+                    <Text style={styles.flagText} numberOfLines={2}>
+                      {flag}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <Pressable
+            onPress={() => setSourcesOpen((s) => !s)}
+            style={styles.sourcesToggle}
+          >
+            <Text style={styles.sourcesToggleLabel}>
+              {sourcesOpen ? "Hide" : "View all"} {result.sources.length} source
+              {result.sources.length === 1 ? "" : "s"}
+            </Text>
+            <MaterialIcons
+              name={sourcesOpen ? "expand-less" : "expand-more"}
+              size={20}
+              color={colors.textMuted}
+            />
+          </Pressable>
+
+          {sourcesOpen && (
+            <View style={styles.sourcesList}>
+              {result.sources.map((s, i) => (
+                <Pressable
+                  key={i}
+                  onPress={() => Linking.openURL(s.url).catch(() => {})}
+                  style={styles.sourceRow}
+                >
+                  <Text style={styles.sourceTitle} numberOfLines={1}>
+                    {s.title}
+                  </Text>
+                  <Text style={styles.sourceMeta}>{s.signal_type}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
         </View>
 
-        <Text style={styles.summary}>{result.summary}</Text>
-
-        {flags.items.length > 0 && (
-          <View style={styles.flagsCard}>
-            <Text style={[styles.flagsHeading, { color: flags.color }]}>{flags.label}</Text>
-            {flags.items.map((flag, i) => (
-              <View key={i} style={styles.flagRow}>
-                <View style={[styles.flagDot, { backgroundColor: flags.color }]} />
-                <Text style={styles.flagText}>{flag}</Text>
-              </View>
-            ))}
-          </View>
-        )}
-
-        <Pressable
-          onPress={() => setSourcesOpen((s) => !s)}
-          style={styles.sourcesToggle}
-        >
-          <Text style={styles.sourcesToggleLabel}>
-            {sourcesOpen ? "Hide" : "View"} sources ({result.sources.length})
-          </Text>
-          <Text style={styles.sourcesChevron}>{sourcesOpen ? "▲" : "▼"}</Text>
-        </Pressable>
-
-        {sourcesOpen && (
-          <View style={styles.sourcesList}>
-            {result.sources.map((s, i) => (
-              <Pressable
-                key={i}
-                onPress={() => Linking.openURL(s.url).catch(() => {})}
-                style={styles.sourceRow}
-              >
-                <Text style={styles.sourceTitle}>{s.title}</Text>
-                <Text style={styles.sourceMeta}>{s.signal_type}</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-
+        {/* Action row */}
         <View style={styles.actionsRow}>
-          <ActionButton label="Share" onPress={onShare} />
-          <ActionButton label="Save" onPress={onSave} />
+          <ActionButton
+            label="Share"
+            icon="share"
+            onPress={onShare}
+            tone="neutral"
+          />
+          <ActionButton
+            label="Save"
+            icon="bookmark-outline"
+            onPress={onSave}
+            tone="neutral"
+          />
           <ActionButton
             label="Watch"
+            icon="visibility"
             onPress={onWatch}
+            tone="primary"
             proBadge={!isPro}
           />
         </View>
 
+        {/* PRD §5.1: legally-required disclaimer on every verdict card */}
         <Text style={styles.disclaimer}>{DISCLAIMER}</Text>
       </ScrollView>
+
+      <BottomNav active="scan" />
     </SafeAreaView>
   );
 }
 
 function ActionButton({
   label,
+  icon,
   onPress,
+  tone,
   proBadge,
 }: {
   label: string;
+  icon: keyof typeof MaterialIcons.glyphMap;
   onPress: () => void;
+  tone: "neutral" | "primary";
   proBadge?: boolean;
 }) {
+  const isPrimary = tone === "primary";
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [styles.actionBtn, { opacity: pressed ? 0.6 : 1 }]}
+      style={({ pressed }) => [
+        styles.actionBtn,
+        {
+          backgroundColor: isPrimary
+            ? colors.primaryContainer
+            : colors.surfaceContainerHighest,
+          opacity: pressed ? 0.85 : 1,
+        },
+      ]}
     >
-      <Text style={styles.actionLabel}>{label}</Text>
+      <MaterialIcons
+        name={icon}
+        size={22}
+        color={isPrimary ? colors.onPrimary : colors.primary}
+      />
+      <Text
+        style={[
+          styles.actionLabel,
+          { color: isPrimary ? colors.onPrimary : colors.text },
+        ]}
+      >
+        {label}
+      </Text>
       {proBadge && (
         <View style={styles.proBadge}>
           <Text style={styles.proBadgeLabel}>PRO</Text>
@@ -129,109 +278,198 @@ function ActionButton({
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  scroll: { padding: 20, paddingBottom: 32 },
-  scoreWrap: { alignItems: "center", marginBottom: 24, gap: 12 },
-  scoreCircle: {
-    width: 160,
-    height: 160,
-    borderRadius: 80,
-    borderWidth: 8,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surface,
-  },
-  scoreNumber: { fontSize: 56, fontWeight: "800" },
-  scoreLabel: {
-    color: colors.textDim,
-    fontSize: 10,
-    letterSpacing: 1.5,
-    marginTop: -4,
-  },
-  confidence: { color: colors.textMuted, fontSize: 13 },
-  summary: {
-    color: colors.text,
-    fontSize: 16,
-    lineHeight: 23,
-    marginBottom: 20,
-  },
-  flagsCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 14,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 16,
-  },
-  flagsHeading: {
-    fontSize: 12,
-    fontWeight: "700",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 10,
-  },
-  flagRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 8 },
-  flagDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginTop: 8,
-    marginRight: 10,
-  },
-  flagText: { color: colors.text, fontSize: 14, lineHeight: 20, flex: 1 },
-  sourcesToggle: {
+  appHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
     backgroundColor: colors.surface,
-    borderRadius: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceContainerHighest,
+  },
+  brand: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  brandName: {
+    ...typography.headlineLgMobile,
+    color: colors.primary,
+    fontWeight: "900",
+    letterSpacing: -1,
+  },
+  scansPill: {
+    backgroundColor: colors.surfaceContainerLow,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  scansPillText: {
+    ...typography.labelMd,
+    color: colors.primary,
+  },
+  scroll: {
+    padding: spacing.lg,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+  },
+  card: {
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: 12,
+    alignItems: "center",
+    ...elevation.card,
   },
-  sourcesToggleLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
-  sourcesChevron: { color: colors.textMuted, fontSize: 12 },
-  sourcesList: { gap: 8, marginBottom: 16 },
-  sourceRow: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 10,
+  scoreRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: spacing.lg,
+    gap: 4,
   },
-  sourceTitle: { color: colors.text, fontSize: 14, marginBottom: 2 },
-  sourceMeta: {
+  scoreNumber: {
+    ...typography.displayScore,
+  },
+  scoreOutOf: {
+    ...typography.headlineMd,
     color: colors.textDim,
-    fontSize: 11,
+  },
+  confidenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  confidenceLabel: {
+    ...typography.caption,
+    color: colors.textMuted,
+    letterSpacing: 1,
+  },
+  confidenceDots: { flexDirection: "row", gap: 4 },
+  confidenceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radius.full,
+  },
+  confidenceValue: {
+    ...typography.labelMd,
+    fontWeight: "700",
+  },
+  summary: {
+    ...typography.bodyMd,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginTop: spacing.lg,
+    paddingHorizontal: spacing.sm,
+  },
+  flagsSection: {
+    width: "100%",
+    marginTop: spacing.lg,
+    gap: spacing.sm,
+  },
+  flagsHeading: {
+    ...typography.labelMd,
+    color: colors.text,
+    letterSpacing: 1.5,
+    marginBottom: 4,
+  },
+  flagRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.md,
+    backgroundColor: colors.surfaceContainerLow,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.surfaceContainerHighest,
+  },
+  flagLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flex: 1,
+  },
+  flagText: {
+    ...typography.labelMd,
+    color: colors.text,
+    flex: 1,
+  },
+  sourcesToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: spacing.md,
+    width: "100%",
+    marginTop: spacing.md,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.outlineVariant,
+    borderRadius: radius.md,
+  },
+  sourcesToggleLabel: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+  },
+  sourcesList: {
+    width: "100%",
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  sourceRow: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceContainerLow,
+    borderRadius: radius.default,
+  },
+  sourceTitle: {
+    ...typography.labelMd,
+    color: colors.text,
+    marginBottom: 2,
+  },
+  sourceMeta: {
+    ...typography.caption,
+    color: colors.textDim,
     textTransform: "uppercase",
     letterSpacing: 0.5,
   },
-  actionsRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+  actionsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
   actionBtn: {
     flex: 1,
-    paddingVertical: 14,
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.border,
+    flexDirection: "column",
     alignItems: "center",
-    flexDirection: "row",
     justifyContent: "center",
     gap: 6,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    minHeight: 72,
   },
-  actionLabel: { color: colors.text, fontSize: 14, fontWeight: "600" },
+  actionLabel: {
+    ...typography.caption,
+    fontWeight: "600",
+  },
   proBadge: {
-    backgroundColor: colors.accent,
+    position: "absolute",
+    top: 6,
+    right: 6,
+    backgroundColor: colors.primary,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: radius.sm,
   },
-  proBadgeLabel: { color: "#1A1A1F", fontSize: 9, fontWeight: "800" },
+  proBadgeLabel: {
+    color: colors.onPrimary,
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
   disclaimer: {
+    ...typography.caption,
     color: colors.textDim,
-    fontSize: 11,
-    lineHeight: 16,
     textAlign: "center",
     fontStyle: "italic",
+    paddingHorizontal: spacing.md,
+    marginTop: spacing.sm,
   },
 });

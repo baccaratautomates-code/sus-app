@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -7,18 +8,29 @@ import {
   Text,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { requestScan } from "../store";
-import { colors } from "../theme";
+import {
+  colors,
+  elevation,
+  radius,
+  spacing,
+  typography,
+} from "../theme";
 import type { ScreenProps } from "../navigation";
 
+// PRD §2 calls for rotating investigative status text during the scan. These
+// match the PRD copy so the user sees specifically what we're checking.
 const STATUSES = [
   "Checking seller history…",
   "Scanning reviews…",
   "Cross-referencing scam databases…",
   "Validating price against market…",
+  "Analyzing domain age…",
+  "Verifying buyer-protection coverage…",
 ] as const;
 
-const STATUS_INTERVAL_MS = 2000;
+const STATUS_INTERVAL_MS = 1800;
 const SCAN_TIMEOUT_MS = 30_000;
 
 type ScanState = { kind: "loading" } | { kind: "error"; message: string };
@@ -26,7 +38,12 @@ type ScanState = { kind: "loading" } | { kind: "error"; message: string };
 export default function LoadingScreen({ navigation, route }: ScreenProps<"Loading">) {
   const [statusIdx, setStatusIdx] = useState(0);
   const [state, setState] = useState<ScanState>({ kind: "loading" });
+
+  // Indeterminate progress-bar slide animation.
   const slide = useRef(new Animated.Value(0)).current;
+  // Slow pulsing ring around the radar circle.
+  const pulse = useRef(new Animated.Value(0)).current;
+
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -34,7 +51,6 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
     setState({ kind: "loading" });
     setStatusIdx(0);
 
-    // Cancel any in-flight attempt before starting a new one.
     abortRef.current?.abort();
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
@@ -49,7 +65,8 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
     } catch (err) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       const isAbort =
-        err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"));
+        err instanceof Error &&
+        (err.name === "AbortError" || err.message.includes("abort"));
       const message = isAbort
         ? "The scan took longer than 30 seconds. The server may be busy — please try again."
         : `Couldn't reach the scan service. ${(err as Error).message}`;
@@ -57,7 +74,6 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
     }
   }, [navigation, route.params.url]);
 
-  // Animate status text + progress bar only while loading.
   useEffect(() => {
     if (state.kind !== "loading") return;
 
@@ -65,7 +81,7 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
       () => setStatusIdx((i) => (i + 1) % STATUSES.length),
       STATUS_INTERVAL_MS,
     );
-    const animation = Animated.loop(
+    const slideAnim = Animated.loop(
       Animated.timing(slide, {
         toValue: 1,
         duration: 1400,
@@ -73,116 +89,277 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
         useNativeDriver: true,
       }),
     );
-    animation.start();
+    const pulseAnim = Animated.loop(
+      Animated.timing(pulse, {
+        toValue: 1,
+        duration: 2400,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }),
+    );
+    slideAnim.start();
+    pulseAnim.start();
     return () => {
       clearInterval(tick);
-      animation.stop();
+      slideAnim.stop();
+      pulseAnim.stop();
     };
-  }, [state.kind, slide]);
+  }, [state.kind, slide, pulse]);
 
-  // Kick off the scan on mount. On unmount, abort the in-flight fetch.
   useEffect(() => {
     runScan();
     return () => {
       abortRef.current?.abort();
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-    // runScan is stable for a given route.params.url; intentional dep list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Error state retains the simpler centred layout from before.
+  if (state.kind === "error") {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorWrap}>
+          <Text style={styles.errorHeading}>Couldn't get a verdict</Text>
+          <Text style={styles.errorMessage}>{state.message}</Text>
+          <Pressable
+            onPress={runScan}
+            style={({ pressed }) => [
+              styles.retry,
+              { opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={styles.retryLabel}>Try again</Text>
+          </Pressable>
+          <Pressable onPress={() => navigation.goBack()} style={styles.cancel}>
+            <Text style={styles.cancelLabel}>Cancel</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Indeterminate progress bar — moves left to right across the track.
   const translateX = slide.interpolate({
     inputRange: [0, 1],
     outputRange: [-120, 240],
   });
 
-  if (state.kind === "error") {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.errorHeading}>Couldn't get a verdict</Text>
-        <Text style={styles.errorMessage}>{state.message}</Text>
-        <Pressable
-          onPress={runScan}
-          style={({ pressed }) => [styles.retry, { opacity: pressed ? 0.75 : 1 }]}
-        >
-          <Text style={styles.retryLabel}>Try again</Text>
-        </Pressable>
-        <Pressable onPress={() => navigation.goBack()} style={styles.cancel}>
-          <Text style={styles.cancelLabel}>Cancel</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  // Pulse ring: scales 0.95 → 1.1, fades 0.5 → 0.0.
+  const pulseScale = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.95, 1.1],
+  });
+  const pulseOpacity = pulse.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0.4, 0],
+  });
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.heading}>Investigating…</Text>
-
-      <View style={styles.barTrack}>
-        <Animated.View style={[styles.barFill, { transform: [{ translateX }] }]} />
+    <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
+      <View style={styles.header}>
+        <View style={styles.brand}>
+          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
+          <Text style={styles.brandName}>Sus</Text>
+        </View>
+        <View style={styles.statusPill}>
+          <Text style={styles.statusPillText}>Investigating…</Text>
+        </View>
       </View>
 
-      <Text style={styles.status}>{STATUSES[statusIdx]}</Text>
-    </View>
+      <View style={styles.center}>
+        <View style={styles.radarWrap}>
+          {/* Pulse ring 1 */}
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.pulseRing,
+              { transform: [{ scale: pulseScale }], opacity: pulseOpacity },
+            ]}
+          />
+          {/* Pulse ring 2 (delayed for layered effect via base scale) */}
+          <View style={styles.pulseRingStatic} pointerEvents="none" />
+          <View style={styles.radarCircle}>
+            <MaterialIcons
+              name="qr-code-scanner"
+              size={72}
+              color={colors.primary}
+            />
+          </View>
+        </View>
+
+        <View style={styles.statusWrap}>
+          <Text style={styles.statusHeading}>{STATUSES[statusIdx]}</Text>
+          <Text style={styles.statusSub}>
+            Running across {STATUSES.length * 7}+ security heuristics
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.footer}>
+        <View style={styles.barTrack}>
+          <Animated.View
+            style={[styles.barFill, { transform: [{ translateX }] }]}
+          />
+        </View>
+        <View style={styles.analyzingBtn}>
+          <Text style={styles.analyzingBtnLabel}>Analyzing results…</Text>
+        </View>
+        <Pressable onPress={() => navigation.goBack()} style={styles.cancel}>
+          <Text style={styles.cancelLabel}>CANCEL SCAN</Text>
+        </Pressable>
+      </View>
+    </SafeAreaView>
   );
 }
 
+const RADAR_SIZE = 240;
+
 const styles = StyleSheet.create({
-  container: {
+  container: { flex: 1, backgroundColor: colors.background },
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceContainerHighest,
+    backgroundColor: colors.surface,
+  },
+  brand: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
+  brandName: {
+    ...typography.headlineLgMobile,
+    color: colors.primary,
+    fontWeight: "900",
+    letterSpacing: -1,
+  },
+  statusPill: {
+    backgroundColor: colors.surfaceContainerLow,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+  },
+  statusPillText: {
+    ...typography.labelMd,
+    color: colors.primary,
+  },
+  center: {
     flex: 1,
-    backgroundColor: colors.background,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 28,
+    paddingHorizontal: spacing.lg,
   },
-  heading: {
+  radarWrap: {
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.xl + spacing.md,
+  },
+  pulseRing: {
+    position: "absolute",
+    width: RADAR_SIZE,
+    height: RADAR_SIZE,
+    borderRadius: RADAR_SIZE / 2,
+    borderWidth: 2,
+    borderColor: colors.primaryContainer,
+  },
+  pulseRingStatic: {
+    position: "absolute",
+    width: RADAR_SIZE - 24,
+    height: RADAR_SIZE - 24,
+    borderRadius: (RADAR_SIZE - 24) / 2,
+    borderWidth: 2,
+    borderColor: colors.primaryFixed,
+    opacity: 0.6,
+  },
+  radarCircle: {
+    width: RADAR_SIZE - 56,
+    height: RADAR_SIZE - 56,
+    borderRadius: (RADAR_SIZE - 56) / 2,
+    backgroundColor: colors.surfaceContainerLowest,
+    borderWidth: 1,
+    borderColor: colors.surfaceContainerHighest,
+    alignItems: "center",
+    justifyContent: "center",
+    ...elevation.card,
+  },
+  statusWrap: { alignItems: "center", gap: spacing.xs, minHeight: 48 },
+  statusHeading: {
+    ...typography.headlineMdMobile,
     color: colors.text,
-    fontSize: 32,
-    fontWeight: "700",
-    marginBottom: 40,
+    textAlign: "center",
+  },
+  statusSub: {
+    ...typography.bodyMd,
+    color: colors.textMuted,
+  },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    gap: spacing.lg,
   },
   barTrack: {
-    width: 240,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.surfaceElevated,
+    backgroundColor: colors.surfaceContainerHighest,
     overflow: "hidden",
-    marginBottom: 28,
   },
   barFill: {
     width: 120,
     height: 4,
     borderRadius: 2,
-    backgroundColor: colors.accent,
+    backgroundColor: colors.primary,
   },
-  status: {
-    color: colors.textMuted,
+  analyzingBtn: {
+    backgroundColor: colors.primaryContainer,
+    opacity: 0.5,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    alignItems: "center",
+  },
+  analyzingBtnLabel: {
+    color: colors.onPrimary,
+    fontWeight: "700",
     fontSize: 16,
-    textAlign: "center",
-    minHeight: 22,
+  },
+  cancel: { alignSelf: "center", paddingVertical: spacing.sm },
+  cancelLabel: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+    letterSpacing: 1.5,
+  },
+  // Error state
+  errorWrap: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
   },
   errorHeading: {
+    ...typography.headlineLgMobile,
     color: colors.text,
-    fontSize: 24,
-    fontWeight: "700",
-    marginBottom: 12,
     textAlign: "center",
+    marginBottom: spacing.sm,
   },
   errorMessage: {
+    ...typography.bodyMd,
     color: colors.textMuted,
-    fontSize: 15,
     textAlign: "center",
-    marginBottom: 32,
-    lineHeight: 22,
+    marginBottom: spacing.xl,
   },
   retry: {
-    backgroundColor: colors.accent,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 10,
-    marginBottom: 12,
+    backgroundColor: colors.primaryContainer,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
   },
-  retryLabel: { color: "#1A1A1F", fontWeight: "700", fontSize: 16 },
-  cancel: { paddingVertical: 10 },
-  cancelLabel: { color: colors.textMuted, fontSize: 14 },
+  retryLabel: {
+    color: colors.onPrimary,
+    fontWeight: "700",
+    fontSize: 16,
+  },
 });

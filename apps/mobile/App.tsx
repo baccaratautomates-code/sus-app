@@ -15,14 +15,14 @@ import { ProProvider } from "./src/context/ProContext";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const navTheme = {
-  dark: true,
+  dark: false,
   colors: {
-    primary: colors.accent,
+    primary: colors.primary,
     background: colors.background,
-    card: colors.background,
+    card: colors.surfaceContainerLowest,
     text: colors.text,
     border: colors.border,
-    notification: colors.accent,
+    notification: colors.primary,
   },
 };
 
@@ -37,12 +37,12 @@ export default function App() {
     <SafeAreaProvider>
       <ProProvider>
         <NavigationContainer theme={navTheme}>
-          <StatusBar style="light" />
+          <StatusBar style="dark" />
           <Stack.Navigator
             screenOptions={{
-              headerStyle: { backgroundColor: colors.background },
+              headerStyle: { backgroundColor: colors.surface },
               headerTintColor: colors.text,
-              headerTitleStyle: { color: colors.text },
+              headerTitleStyle: { color: colors.text, fontWeight: "700" },
               contentStyle: { backgroundColor: colors.background },
             }}
           >
@@ -59,12 +59,12 @@ export default function App() {
             <Stack.Screen
               name="Verdict"
               component={VerdictScreen}
-              options={{ title: "Verdict" }}
+              options={{ headerShown: false }}
             />
             <Stack.Screen
               name="Paywall"
               component={PaywallScreen}
-              options={{ presentation: "modal", title: "Go Pro" }}
+              options={{ headerShown: false, presentation: "modal" }}
             />
           </Stack.Navigator>
         </NavigationContainer>

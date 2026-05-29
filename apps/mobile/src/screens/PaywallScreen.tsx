@@ -1,3 +1,4 @@
+import { MaterialIcons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -11,7 +12,13 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { PurchasesPackage } from "react-native-purchases";
 import { PACKAGE_TYPE } from "react-native-purchases";
-import { colors } from "../theme";
+import {
+  colors,
+  elevation,
+  radius,
+  spacing,
+  typography,
+} from "../theme";
 import { getOfferings, purchasePackage, restorePurchases } from "../purchases";
 import { usePro } from "../context/ProContext";
 import type { ScreenProps } from "../navigation";
@@ -19,17 +26,22 @@ import type { ScreenProps } from "../navigation";
 type Region = "US" | "PH";
 
 // Fallback pricing shown if RevenueCat offerings can't be fetched.
-const FALLBACK_PRICING: Record<Region, { monthly: string; annual: string; annualSavings: string }> = {
+// Matches PRD §4.2 — keep these in sync with App Store Connect / Play Console.
+const FALLBACK_PRICING: Record<
+  Region,
+  { monthly: string; annual: string; annualSavings: string }
+> = {
   US: { monthly: "$9.99/mo", annual: "$79.99/yr", annualSavings: "Save 34%" },
   PH: { monthly: "₱299/mo", annual: "₱2,490/yr", annualSavings: "Save ~30%" },
 };
 
+// PRD §4.2 Pro tier features.
 const FEATURES = [
-  "Unlimited scans",
-  "Unlimited history",
-  "Watch alerts when red flags emerge",
-  "Share branded verdict cards",
-  "Priority scan speed",
+  { title: "Unlimited scans", desc: "No monthly cap — check as much as you want." },
+  { title: "Unlimited history", desc: "Keep every scan permanently in your log." },
+  { title: "Watch alerts", desc: "We re-check saved listings + alert you on new red flags." },
+  { title: "Branded share cards", desc: "Export verdicts as image cards for social." },
+  { title: "Priority scan speed", desc: "Dedicated queue for faster verdicts." },
 ];
 
 export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
@@ -39,7 +51,6 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
   const [loading, setLoading] = useState(false);
   const [restoring, setRestoring] = useState(false);
 
-  // RevenueCat packages — null until fetched or if fetch fails.
   const [monthlyPkg, setMonthlyPkg] = useState<PurchasesPackage | null>(null);
   const [annualPkg, setAnnualPkg] = useState<PurchasesPackage | null>(null);
 
@@ -65,9 +76,7 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
 
   const onSubscribe = async () => {
     const pkg = selectedPlan === "annual" ? annualPkg : monthlyPkg;
-
     if (!pkg) {
-      // RevenueCat not configured or no offering — inform the user.
       Alert.alert(
         "Not available",
         "In-app purchases are not set up yet. Please contact support.",
@@ -87,9 +96,11 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
       }
     } catch (err) {
       const message = (err as Error).message ?? "";
-      // "1" is the RevenueCat user-cancelled code — don't show an error for that.
       if (!message.includes("userCancelled")) {
-        Alert.alert("Purchase failed", message || "Something went wrong. Please try again.");
+        Alert.alert(
+          "Purchase failed",
+          message || "Something went wrong. Please try again.",
+        );
       }
     } finally {
       setLoading(false);
@@ -116,25 +127,45 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
     }
   };
 
-  // Derive display prices: prefer live RevenueCat data, fall back to hardcoded.
-  const annualPrice =
-    annualPkg?.product.priceString ?? fallback.annual;
-  const monthlyPrice =
-    monthlyPkg?.product.priceString ?? fallback.monthly;
-  const annualSavings = fallback.annualSavings; // RevenueCat doesn't provide this directly
+  const annualPrice = annualPkg?.product.priceString ?? fallback.annual;
+  const monthlyPrice = monthlyPkg?.product.priceString ?? fallback.monthly;
+  const annualSavings = fallback.annualSavings;
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.headline}>You've used your 3 free scans this month</Text>
-        <Text style={styles.subhead}>Unlock unlimited verdicts and Watch alerts.</Text>
+        {/* Header: drag handle + close button */}
+        <View style={styles.handleRow}>
+          <View style={styles.handle} />
+        </View>
+        <View style={styles.closeRow}>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={styles.closeBtn}
+            hitSlop={8}
+          >
+            <MaterialIcons name="close" size={24} color={colors.textMuted} />
+          </Pressable>
+        </View>
 
+        {/* Headline */}
+        <Text style={styles.headline}>
+          You've used your 3 free scans this month.
+        </Text>
+        <Text style={styles.subhead}>
+          Unlock unlimited verdicts and Watch alerts.
+        </Text>
+
+        {/* Region toggle */}
         <View style={styles.regionRow}>
           {(["US", "PH"] as const).map((r) => (
             <Pressable
               key={r}
               onPress={() => setRegion(r)}
-              style={[styles.regionPill, region === r && styles.regionPillActive]}
+              style={[
+                styles.regionPill,
+                region === r && styles.regionPillActive,
+              ]}
             >
               <Text
                 style={[
@@ -148,11 +179,13 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
           ))}
         </View>
 
-        <View style={styles.plans}>
+        {/* Plan cards */}
+        <View style={styles.planList}>
           <PlanCard
             title="Annual"
             price={annualPrice}
             note={annualSavings}
+            bestValue
             selected={selectedPlan === "annual"}
             onPress={() => setSelectedPlan("annual")}
           />
@@ -165,15 +198,26 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
           />
         </View>
 
-        <View style={styles.features}>
+        {/* Features */}
+        <View style={styles.featuresList}>
           {FEATURES.map((f) => (
-            <View key={f} style={styles.featureRow}>
-              <Text style={styles.featureCheck}>✓</Text>
-              <Text style={styles.featureText}>{f}</Text>
+            <View key={f.title} style={styles.featureRow}>
+              <View style={styles.featureCheck}>
+                <MaterialIcons
+                  name="check"
+                  size={16}
+                  color={colors.onLegitContainer}
+                />
+              </View>
+              <View style={styles.featureBody}>
+                <Text style={styles.featureTitle}>{f.title}</Text>
+                <Text style={styles.featureDesc}>{f.desc}</Text>
+              </View>
             </View>
           ))}
         </View>
 
+        {/* CTA */}
         <Pressable
           onPress={onSubscribe}
           disabled={loading || restoring}
@@ -183,9 +227,9 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
           ]}
         >
           {loading ? (
-            <ActivityIndicator color="#1A1A1F" />
+            <ActivityIndicator color={colors.onPrimary} />
           ) : (
-            <Text style={styles.ctaLabel}>Start Pro</Text>
+            <Text style={styles.ctaLabel}>Unlock Sus Pro</Text>
           )}
         </Pressable>
 
@@ -204,6 +248,16 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
         <Pressable onPress={() => navigation.goBack()} style={styles.dismiss}>
           <Text style={styles.dismissLabel}>Maybe later</Text>
         </Pressable>
+
+        <View style={styles.legalRow}>
+          <Text style={styles.legalLink}>Privacy Policy</Text>
+          <Text style={styles.legalDot}>·</Text>
+          <Text style={styles.legalLink}>Terms of Use</Text>
+          <Text style={styles.legalDot}>·</Text>
+          <Pressable onPress={onRestore} hitSlop={8}>
+            <Text style={styles.legalLink}>Restore</Text>
+          </Pressable>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -214,12 +268,14 @@ function PlanCard({
   price,
   note,
   selected,
+  bestValue,
   onPress,
 }: {
   title: string;
   price: string;
   note: string;
   selected: boolean;
+  bestValue?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -227,85 +283,209 @@ function PlanCard({
       onPress={onPress}
       style={[styles.planCard, selected && styles.planCardSelected]}
     >
-      <Text style={styles.planTitle}>{title}</Text>
-      <Text style={styles.planPrice}>{price}</Text>
-      <Text style={styles.planNote}>{note}</Text>
+      {bestValue && (
+        <View style={styles.bestValuePill}>
+          <Text style={styles.bestValueLabel}>BEST VALUE</Text>
+        </View>
+      )}
+      <View style={styles.planLeft}>
+        <Text style={styles.planTitle}>{title}</Text>
+        <Text style={styles.planPrice}>{price}</Text>
+        <Text style={styles.planNote}>{note}</Text>
+      </View>
+      <View
+        style={[styles.planRadio, selected && styles.planRadioSelected]}
+      >
+        {selected && <View style={styles.planRadioDot} />}
+      </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  scroll: { padding: 24, paddingBottom: 40 },
-  headline: {
-    color: colors.text,
-    fontSize: 26,
-    fontWeight: "700",
-    lineHeight: 32,
-    marginBottom: 8,
-    marginTop: 12,
+  container: { flex: 1, backgroundColor: colors.surfaceContainerLowest },
+  scroll: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
   },
-  subhead: { color: colors.textMuted, fontSize: 15, marginBottom: 28 },
+  handleRow: { alignItems: "center", paddingTop: spacing.sm },
+  handle: {
+    width: 48,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceContainerHighest,
+  },
+  closeRow: { alignItems: "flex-end", marginTop: spacing.sm },
+  closeBtn: {
+    padding: spacing.xs,
+    borderRadius: radius.full,
+  },
+  headline: {
+    ...typography.headlineLgMobile,
+    color: colors.text,
+    marginTop: spacing.md,
+  },
+  subhead: {
+    ...typography.bodyMd,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+    marginBottom: spacing.lg,
+  },
   regionRow: {
     flexDirection: "row",
-    gap: 8,
-    marginBottom: 16,
-    alignSelf: "flex-start",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   regionPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: colors.surface,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceContainerLow,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: colors.outlineVariant,
   },
   regionPillActive: {
-    backgroundColor: colors.surfaceElevated,
-    borderColor: colors.accent,
+    backgroundColor: colors.primaryFixed,
+    borderColor: colors.primary,
   },
-  regionLabel: { color: colors.textMuted, fontSize: 12, fontWeight: "600" },
-  regionLabelActive: { color: colors.text },
-  plans: { flexDirection: "row", gap: 12, marginBottom: 28 },
-  planCard: {
-    flex: 1,
-    padding: 18,
-    borderRadius: 14,
-    backgroundColor: colors.surface,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  planCardSelected: { borderColor: colors.accent, backgroundColor: colors.surfaceElevated },
-  planTitle: {
+  regionLabel: {
+    ...typography.caption,
     color: colors.textMuted,
-    fontSize: 12,
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    marginBottom: 6,
+    fontWeight: "700",
   },
-  planPrice: { color: colors.text, fontSize: 22, fontWeight: "700", marginBottom: 4 },
-  planNote: { color: colors.accent, fontSize: 12, fontWeight: "600" },
-  features: { marginBottom: 28, gap: 10 },
-  featureRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  featureCheck: { color: colors.legit, fontSize: 16, fontWeight: "700" },
-  featureText: { color: colors.text, fontSize: 15, flex: 1 },
-  cta: {
-    backgroundColor: colors.accent,
-    paddingVertical: 16,
-    borderRadius: 12,
+  regionLabelActive: { color: colors.primary },
+  planList: { gap: spacing.sm, marginBottom: spacing.lg },
+  planCard: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 12,
-    minHeight: 52,
+    justifyContent: "space-between",
+    borderRadius: radius.md,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceContainerLowest,
+  },
+  planCardSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryFixed,
+  },
+  bestValuePill: {
+    position: "absolute",
+    top: -10,
+    left: spacing.md,
+    backgroundColor: colors.primary,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  bestValueLabel: {
+    color: colors.onPrimary,
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  planLeft: { flex: 1 },
+  planTitle: {
+    ...typography.labelMd,
+    color: colors.text,
+    fontWeight: "700",
+  },
+  planPrice: {
+    ...typography.headlineMdMobile,
+    color: colors.primary,
+    marginTop: 2,
+  },
+  planNote: {
+    ...typography.caption,
+    color: colors.onLegitContainer,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  planRadio: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    borderWidth: 2,
+    borderColor: colors.outlineVariant,
+    alignItems: "center",
     justifyContent: "center",
   },
-  ctaLabel: { color: "#1A1A1F", fontSize: 17, fontWeight: "700" },
+  planRadioSelected: { borderColor: colors.primary },
+  planRadioDot: {
+    width: 12,
+    height: 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+  },
+  featuresList: {
+    gap: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+  },
+  featureCheck: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    backgroundColor: colors.legitContainer,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 2,
+  },
+  featureBody: { flex: 1, gap: 2 },
+  featureTitle: {
+    ...typography.labelMd,
+    color: colors.text,
+  },
+  featureDesc: {
+    ...typography.caption,
+    color: colors.textMuted,
+  },
+  cta: {
+    backgroundColor: colors.primaryContainer,
+    borderRadius: radius.md,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 52,
+    ...elevation.card,
+  },
+  ctaLabel: {
+    color: colors.onPrimary,
+    fontSize: 16,
+    fontWeight: "800",
+  },
   restore: {
     alignItems: "center",
-    paddingVertical: 12,
-    minHeight: 44,
-    justifyContent: "center",
+    paddingVertical: spacing.sm,
+    marginTop: spacing.sm,
   },
-  restoreLabel: { color: colors.textMuted, fontSize: 14 },
-  dismiss: { alignItems: "center", paddingVertical: 12 },
-  dismissLabel: { color: colors.textDim, fontSize: 14 },
+  restoreLabel: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+  },
+  dismiss: { alignItems: "center", paddingVertical: spacing.sm },
+  dismissLabel: {
+    ...typography.labelMd,
+    color: colors.textDim,
+  },
+  legalRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceContainerHighest,
+  },
+  legalLink: {
+    fontSize: 11,
+    color: colors.textMuted,
+    textDecorationLine: "underline",
+  },
+  legalDot: { color: colors.textDim, fontSize: 11 },
 });
