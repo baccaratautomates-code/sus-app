@@ -1,12 +1,19 @@
+import { env } from "./env";
 import { sql } from "./db";
 
 // PRD §6.4: free users get 3 scans/month, Pro is unlimited.
 const FREE_QUOTA_PER_MONTH = 3;
 
-// Dev bypass: these user IDs skip the quota entirely so local testing isn't
-// throttled by the free limit. Remove once real auth lands and every dev/tester
-// has a distinct ID.
-const QUOTA_BYPASS_USERS = new Set(["test-user"]);
+// User IDs that skip the quota gate entirely. Always includes the "test-user"
+// stub used by local seed scripts, then merges in anything configured via the
+// BYPASS_USER_IDS env var (comma-separated Supabase user UUIDs) — that's the
+// production path for demo/test accounts that need unlimited scans without
+// flipping is_pro = true in the DB (which would later collide with
+// RevenueCat webhook state).
+const QUOTA_BYPASS_USERS = new Set<string>([
+  "test-user",
+  ...env.BYPASS_USER_IDS.split(",").map((s) => s.trim()).filter(Boolean),
+]);
 
 export interface QuotaStatus {
   allowed: boolean;

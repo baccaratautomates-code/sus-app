@@ -16,4 +16,9 @@ export const env = {
   // demo key — fine for local testing, hits a 500/day quota in production.
   // Get a free key (25K/month) at https://ocr.space/ocrapi.
   OCR_SPACE_API_KEY: process.env.OCR_SPACE_API_KEY ?? "helloworld",
+  // Comma-separated Supabase user IDs that bypass the free-tier quota gate.
+  // Use this for demo/test accounts that need unlimited scans without flipping
+  // is_pro = true in the DB (which would collide with RevenueCat once live).
+  // Format: BYPASS_USER_IDS=uuid-1,uuid-2
+  BYPASS_USER_IDS: process.env.BYPASS_USER_IDS ?? "",
 };
