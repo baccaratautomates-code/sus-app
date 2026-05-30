@@ -7,6 +7,7 @@ export type RootStackParamList = {
   Onboarding: undefined;
   Home: undefined;
   History: undefined;
+  Settings: undefined;
   Loading: { url: string };
   Verdict: { result: ScanResponse };
   Paywall: undefined;

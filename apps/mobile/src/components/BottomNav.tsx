@@ -4,8 +4,9 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
 import { colors, radius, spacing, typography } from "../theme";
 import type { RootStackParamList } from "../navigation";
+import { UserAvatar } from "./UserAvatar";
 
-type TabKey = "scan" | "history" | "watch" | "share" | "settings";
+type TabKey = "scan" | "history" | "watch" | "settings";
 
 interface Tab {
   key: TabKey;
@@ -13,12 +14,14 @@ interface Tab {
   icon: keyof typeof MaterialIcons.glyphMap;
 }
 
+// "settings" still uses Settings as its label internally but renders the user's
+// avatar instead of a gear icon — the IG / TikTok / X pattern that signals
+// "this tab is you" more clearly than a generic icon.
 const TABS: Tab[] = [
   { key: "scan", label: "Scan", icon: "qr-code-scanner" },
   { key: "history", label: "History", icon: "history" },
   { key: "watch", label: "Watch", icon: "visibility" },
-  { key: "share", label: "Share", icon: "share" },
-  { key: "settings", label: "Settings", icon: "settings" },
+  { key: "settings", label: "Profile", icon: "settings" },
 ];
 
 interface Props {
@@ -43,6 +46,10 @@ export function BottomNav({ active }: Props) {
       navigation.navigate("History");
       return;
     }
+    if (tab === "settings") {
+      navigation.navigate("Settings");
+      return;
+    }
     Alert.alert("Coming soon", `${capitalize(tab)} isn't built yet.`);
   };
 
@@ -50,6 +57,7 @@ export function BottomNav({ active }: Props) {
     <View style={styles.nav}>
       {TABS.map((tab) => {
         const isActive = tab.key === active;
+        const isProfile = tab.key === "settings";
         return (
           <Pressable
             key={tab.key}
@@ -60,14 +68,29 @@ export function BottomNav({ active }: Props) {
             <View
               style={[
                 styles.iconWrap,
-                isActive && { backgroundColor: colors.primaryContainer },
+                // Active profile tab gets a ring instead of a pill so the
+                // avatar stays the focal element. Other active tabs get the
+                // existing pill background.
+                isActive && !isProfile && {
+                  backgroundColor: colors.primaryContainer,
+                },
+                isActive && isProfile && {
+                  borderWidth: 2,
+                  borderColor: colors.primary,
+                  width: 32,
+                  height: 32,
+                },
               ]}
             >
-              <MaterialIcons
-                name={tab.icon}
-                size={22}
-                color={isActive ? colors.onPrimary : colors.textMuted}
-              />
+              {isProfile ? (
+                <UserAvatar size={26} />
+              ) : (
+                <MaterialIcons
+                  name={tab.icon}
+                  size={22}
+                  color={isActive ? colors.onPrimary : colors.textMuted}
+                />
+              )}
             </View>
             <Text
               style={[

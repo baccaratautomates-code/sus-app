@@ -18,6 +18,7 @@ import HistoryScreen from "./src/screens/HistoryScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import LoadingScreen from "./src/screens/LoadingScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
+import SettingsScreen from "./src/screens/SettingsScreen";
 import VerdictScreen from "./src/screens/VerdictScreen";
 import PaywallScreen from "./src/screens/PaywallScreen";
 import { colors } from "./src/theme";
@@ -128,6 +129,11 @@ function Root() {
             <Stack.Screen
               name="History"
               component={HistoryScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Settings"
+              component={SettingsScreen}
               options={{ headerShown: false }}
             />
             <Stack.Screen
