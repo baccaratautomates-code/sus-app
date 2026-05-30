@@ -4,7 +4,12 @@ import Groq from "groq-sdk";
 import type { ScanRequest, ScanResponse } from "@sus/shared";
 import { bootstrapSchema, sql } from "./db";
 import { env } from "./env";
-import { extractUrl, ocrImage } from "./ocr";
+import {
+  detectUnsupportedMarketplace,
+  extractUrl,
+  ocrImage,
+  unsupportedMarketplaceMessage,
+} from "./ocr";
 import { checkQuota, consumeQuota } from "./quota";
 import { runScan } from "./scan";
 import { handleRevenueCatEvent } from "./webhook";
@@ -79,6 +84,28 @@ app.post("/scan", async (c) => {
 
   const parsed = parseScanRequest(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+
+  // Early-exit for platforms with no usable third-party signals. Matches the
+  // /scan/image pre-check so the share-sheet flow (raw FB Marketplace link)
+  // gets the same tailored copy instead of a generic 25s-scrape "Not Enough Info".
+  if (parsed.value.kind === "url" && parsed.value.url) {
+    const unsupported = detectUnsupportedMarketplace(parsed.value.url);
+    if (unsupported) {
+      console.log(`[scan] ${parsed.value.url} → ${unsupported} not supported — tailored Not Enough Info`);
+      const response: ScanResponse = {
+        trust_score: 0,
+        verdict: "Not Enough Info",
+        summary: unsupportedMarketplaceMessage(unsupported),
+        red_flags: [],
+        green_flags: [],
+        confidence: "Low",
+        sources: [],
+        scanned_at: new Date().toISOString(),
+        input: parsed.value,
+      };
+      return c.json({ ...response, is_pro: false });
+    }
+  }
 
   // Quota gate (PRD §6.4). DB failures here silent-degrade — we'd rather serve
   // free scans than take the product down because Supabase blipped.
@@ -169,6 +196,26 @@ app.post("/scan/image", async (c) => {
 
     const extractedUrl = extractUrl(ocrText);
     if (extractedUrl) {
+      // Early-exit for platforms we can't usefully evaluate. Don't burn quota
+      // or the 25s scrape fan-out when we know upfront the result will be
+      // generic "Not Enough Info" — give the user tailored copy instead.
+      const unsupported = detectUnsupportedMarketplace(extractedUrl);
+      if (unsupported) {
+        console.log(`[scan/image] extracted ${extractedUrl} but ${unsupported} not supported — returning tailored Not Enough Info`);
+        const response: ScanResponse = {
+          trust_score: 0,
+          verdict: "Not Enough Info",
+          summary: unsupportedMarketplaceMessage(unsupported),
+          red_flags: [],
+          green_flags: [],
+          confidence: "Low",
+          sources: [],
+          scanned_at: new Date().toISOString(),
+          input: { kind: "image", image_id: "uploaded", user_id: userId },
+        };
+        return c.json({ ...response, is_pro: quotaIsPro });
+      }
+
       console.log(`[scan/image] extracted URL ${extractedUrl} — running standard scan`);
       const response = await runScan({
         kind: "url",

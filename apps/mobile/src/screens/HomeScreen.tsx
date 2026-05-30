@@ -84,7 +84,9 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
     // No media-library permission needed on iOS for the new ImagePicker —
     // Apple handles consent inline. Android + web work the same way.
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      // SDK 54 replaced MediaTypeOptions with the array form. Restricting to
+      // ["images"] excludes video so we don't try to OCR a clip.
+      mediaTypes: ["images"],
       // Down-sample on the way out so we don't ship a 12MB iPhone shot to the
       // OCR endpoint. 1280px on the long edge is plenty for URL bars + text.
       quality: 0.7,

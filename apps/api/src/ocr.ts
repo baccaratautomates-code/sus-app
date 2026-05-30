@@ -68,3 +68,25 @@ export function extractUrl(text: string): string | null {
 function cleanTrailingPunctuation(url: string): string {
   return url.replace(/[.,;)\]>​-‍﻿]+$/, "");
 }
+
+// URL patterns we recognize but can't usefully evaluate in v1 — none of our
+// third-party signal sources (Trustpilot, Scamadviser, DTI, Reddit r/scams)
+// index individual P2P listings on these platforms. Returning Not Enough Info
+// with tailored copy is more honest than running the scrape pipeline and
+// returning a generic "we couldn't find evidence" message after 25 seconds.
+export type UnsupportedReason = "fb-marketplace" | "ig-shop";
+
+export function detectUnsupportedMarketplace(url: string): UnsupportedReason | null {
+  if (/facebook\.com\/marketplace\/item\//i.test(url)) return "fb-marketplace";
+  if (/instagram\.com\/(?:p|reel)\//i.test(url)) return "ig-shop";
+  return null;
+}
+
+export function unsupportedMarketplaceMessage(reason: UnsupportedReason): string {
+  switch (reason) {
+    case "fb-marketplace":
+      return "Sus doesn't yet evaluate individual Facebook Marketplace sellers — third-party watchdogs like Trustpilot, Scamadviser, and DTI don't index P2P listings. Check the seller's profile age and message history directly, and prefer meet-up with cash-on-delivery. Sus works best on Shopee, Lazada, TikTok Shop, and brand websites.";
+    case "ig-shop":
+      return "Sus doesn't yet evaluate Instagram shop posts. Try a brand website or marketplace listing URL instead, or check seller reviews on the platform directly.";
+  }
+}
