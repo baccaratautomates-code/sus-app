@@ -1,5 +1,6 @@
 import { Platform } from "react-native";
 import type { ScanResponse, Verdict } from "@sus/shared";
+import { supabase } from "./supabase";
 
 // Dev API base. Web hits localhost directly; native (iOS/Android) needs the
 // host's LAN IP since "localhost" on a device/emulator points at itself.
@@ -9,6 +10,16 @@ import type { ScanResponse, Verdict } from "@sus/shared";
 const API_BASE =
   process.env.EXPO_PUBLIC_API_BASE ??
   (Platform.OS === "web" ? "http://localhost:3000" : "http://localhost:3000");
+
+// Reads the active Supabase session and returns the user's id. Returns null
+// if the user isn't signed in — callers in authenticated screens treat null
+// as "skip the request" (the AuthScreen prevents this from happening in
+// practice, but defensively returning null keeps tests + the loading flash
+// from crashing).
+async function currentUserId(): Promise<string | null> {
+  const { data } = await supabase.auth.getSession();
+  return data.session?.user.id ?? null;
+}
 
 export interface RecentScan {
   id: string;
@@ -29,16 +40,15 @@ export const mockState = {
   recentScans: [] as RecentScan[],
 };
 
-// Stand-in user identity. Replace with real auth user once that lands.
-export const CURRENT_USER_ID = "test-user";
-
 // GET /me/scans — returns the user's recent scans newest first.
-// Returns an empty array on any failure (network, server, etc.) so the UI just
-// shows the empty state instead of crashing.
+// Returns an empty array on any failure (network, server, no-session) so the
+// UI just shows the empty state instead of crashing.
 export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
   try {
+    const userId = await currentUserId();
+    if (!userId) return [];
     const res = await fetch(
-      `${API_BASE}/me/scans?user_id=${encodeURIComponent(CURRENT_USER_ID)}&limit=${limit}`,
+      `${API_BASE}/me/scans?user_id=${encodeURIComponent(userId)}&limit=${limit}`,
     );
     if (!res.ok) return [];
     const body = (await res.json()) as {
@@ -62,14 +72,20 @@ export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
 }
 
 // Real scan request. Pass an AbortSignal to cancel (used for timeout + unmount).
+// Throws if there's no signed-in user — callers should be on an authed screen
+// already so this should never fire in practice.
 export async function requestScan(
   url: string,
   signal?: AbortSignal,
 ): Promise<ScanResponse> {
+  const userId = await currentUserId();
+  if (!userId) {
+    throw new Error("Not signed in. Please sign in before scanning.");
+  }
   const res = await fetch(`${API_BASE}/scan`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ kind: "url", url, user_id: "test-user" }),
+    body: JSON.stringify({ kind: "url", url, user_id: userId }),
     signal,
   });
 

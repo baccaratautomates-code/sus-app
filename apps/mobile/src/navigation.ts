@@ -3,6 +3,7 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import type { ScanResponse } from "@sus/shared";
 
 export type RootStackParamList = {
+  Auth: undefined;
   Onboarding: undefined;
   Home: undefined;
   History: undefined;

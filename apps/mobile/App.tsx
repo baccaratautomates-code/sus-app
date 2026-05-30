@@ -10,9 +10,10 @@ import {
   useFonts,
 } from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import AuthScreen from "./src/screens/AuthScreen";
 import HistoryScreen from "./src/screens/HistoryScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import LoadingScreen from "./src/screens/LoadingScreen";
@@ -21,10 +22,11 @@ import VerdictScreen from "./src/screens/VerdictScreen";
 import PaywallScreen from "./src/screens/PaywallScreen";
 import { colors } from "./src/theme";
 import { navigationRef, type RootStackParamList } from "./src/navigation";
-import { initializePurchases } from "./src/purchases";
+import { initializePurchases, logOutPurchases } from "./src/purchases";
+import { AuthProvider, useAuth } from "./src/context/AuthContext";
+import { OnboardedProvider, useOnboarded } from "./src/context/OnboardedContext";
 import { ProProvider } from "./src/context/ProContext";
 import { ShareTargetHandler } from "./src/components/ShareTargetHandler";
-import { isOnboarded } from "./src/storage";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -41,9 +43,6 @@ const navTheme = {
 };
 
 export default function App() {
-  const [initialRoute, setInitialRoute] =
-    useState<keyof RootStackParamList | null>(null);
-
   // Load Inter at app boot. Until fonts load, we hold on a blank screen so
   // typography doesn't flash from system-font to Inter once styles resolve.
   const [fontsLoaded] = useFonts({
@@ -55,43 +54,72 @@ export default function App() {
     Inter_900Black,
   });
 
-  useEffect(() => {
-    // Initialize RevenueCat once on app start.
-    // Replace "test-user" with your real auth user ID when auth is wired.
-    initializePurchases("test-user");
-  }, []);
-
-  useEffect(() => {
-    // First-launch detection: skip Onboarding once the user has seen it.
-    // The check is async so we hold the navigator on a blank background until
-    // we know which route to start at — avoids a flash of the wrong screen.
-    isOnboarded().then((seen) => setInitialRoute(seen ? "Home" : "Onboarding"));
-  }, []);
-
-  if (initialRoute === null || !fontsLoaded) {
+  if (!fontsLoaded) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
   return (
     <SafeAreaProvider>
-      <ProProvider>
-        <NavigationContainer ref={navigationRef} theme={navTheme}>
-          <StatusBar style="dark" />
-          <ShareTargetHandler />
-          <Stack.Navigator
-            initialRouteName={initialRoute}
-            screenOptions={{
-              headerStyle: { backgroundColor: colors.surface },
-              headerTintColor: colors.text,
-              headerTitleStyle: { color: colors.text, fontWeight: "700" },
-              contentStyle: { backgroundColor: colors.background },
-            }}
-          >
-            <Stack.Screen
-              name="Onboarding"
-              component={OnboardingScreen}
-              options={{ headerShown: false, gestureEnabled: false }}
-            />
+      <AuthProvider>
+        <OnboardedProvider>
+          <ProProvider>
+            <Root />
+          </ProProvider>
+        </OnboardedProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
+  );
+}
+
+// Auth-aware navigator. Renders one of three screen stacks depending on session
+// + onboarding state, so React Navigation cleanly remounts when the user signs
+// in / out instead of us having to imperatively navigate.
+function Root() {
+  const { session, loading: authLoading, user } = useAuth();
+  const { onboarded } = useOnboarded();
+
+  // Re-sync RC's appUserID whenever the auth user changes. On sign-out we call
+  // logOut so RC treats the next anon as a fresh user (no accidental
+  // entitlement leakage between accounts).
+  useEffect(() => {
+    if (user?.id) {
+      initializePurchases(user.id);
+    } else {
+      logOutPurchases();
+    }
+  }, [user?.id]);
+
+  // Block render until both checks resolve so we don't flash the wrong stack.
+  if (authLoading || onboarded === null) {
+    return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  }
+
+  return (
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
+      <StatusBar style="dark" />
+      <ShareTargetHandler />
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.text,
+          headerTitleStyle: { color: colors.text, fontWeight: "700" },
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        {!onboarded ? (
+          <Stack.Screen
+            name="Onboarding"
+            component={OnboardingScreen}
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
+        ) : !session ? (
+          <Stack.Screen
+            name="Auth"
+            component={AuthScreen}
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
+        ) : (
+          <>
             <Stack.Screen
               name="Home"
               component={HomeScreen}
@@ -117,9 +145,9 @@ export default function App() {
               component={PaywallScreen}
               options={{ headerShown: false, presentation: "modal" }}
             />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </ProProvider>
-    </SafeAreaProvider>
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }

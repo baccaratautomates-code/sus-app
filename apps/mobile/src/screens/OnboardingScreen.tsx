@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { markOnboarded } from "../storage";
+import { useOnboarded } from "../context/OnboardedContext";
 import { colors, radius, spacing, typography } from "../theme";
 import type { ScreenProps } from "../navigation";
 
@@ -49,11 +49,10 @@ const SLIDES: Slide[] = [
   },
 ];
 
-export default function OnboardingScreen({
-  navigation,
-}: ScreenProps<"Onboarding">) {
+export default function OnboardingScreen({}: ScreenProps<"Onboarding">) {
   const [pageIndex, setPageIndex] = useState(0);
   const listRef = useRef<FlatList<Slide>>(null);
+  const { markComplete } = useOnboarded();
   // Track the live window width so slides re-flow on browser resize. Using
   // Dimensions.get() at module load freezes the slide size to whatever the
   // viewport was when JS first booted — fine on native, broken on web.
@@ -70,9 +69,10 @@ export default function OnboardingScreen({
     if (clamped !== pageIndex) setPageIndex(clamped);
   };
 
+  // Mark onboarding complete and let Root re-render with the next stack
+  // (Auth if no session, otherwise the app stack starting at Home).
   const finish = async () => {
-    await markOnboarded();
-    navigation.replace("Home");
+    await markComplete();
   };
 
   const goNext = () => {
