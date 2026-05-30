@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { requestImageScan, requestScan } from "../store";
+import { QuotaExceededError, requestImageScan, requestScan } from "../store";
 import {
   colors,
   elevation,
@@ -82,6 +82,13 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
       navigation.replace("Verdict", { result });
     } catch (err) {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      // Free-tier quota hit (HTTP 402). Send the user straight to the paywall
+      // instead of the generic error screen — they didn't fail to scan, they
+      // need to upgrade or wait for the monthly reset.
+      if (err instanceof QuotaExceededError) {
+        navigation.replace("Paywall");
+        return;
+      }
       const isAbort =
         err instanceof Error &&
         (err.name === "AbortError" || err.message.includes("abort"));

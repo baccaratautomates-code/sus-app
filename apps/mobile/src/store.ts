@@ -21,6 +21,46 @@ async function currentUserId(): Promise<string | null> {
   return data.session?.user.id ?? null;
 }
 
+// Thrown when the API returns 402 quota_exceeded. The LoadingScreen catches
+// this specifically and replaces the route with Paywall instead of showing
+// the generic "Couldn't get a verdict" error state with raw JSON in it.
+export class QuotaExceededError extends Error {
+  scansUsed: number;
+  isPro: boolean;
+  constructor(message: string, scansUsed: number, isPro: boolean) {
+    super(message);
+    this.name = "QuotaExceededError";
+    this.scansUsed = scansUsed;
+    this.isPro = isPro;
+  }
+}
+
+// Inspects a non-2xx response and throws either QuotaExceededError (for 402)
+// or a generic Error with the response body inlined for everything else.
+// Centralizes the error shape so both requestScan and requestImageScan
+// behave identically from the caller's perspective.
+async function throwFromResponse(res: Response): Promise<never> {
+  const text = await res.text().catch(() => "");
+  if (res.status === 402) {
+    try {
+      const body = JSON.parse(text) as {
+        message?: string;
+        scans_used?: number;
+        is_pro?: boolean;
+      };
+      throw new QuotaExceededError(
+        body.message ?? "Free quota exceeded.",
+        body.scans_used ?? 0,
+        body.is_pro ?? false,
+      );
+    } catch (err) {
+      if (err instanceof QuotaExceededError) throw err;
+      // JSON parse failed — fall through to generic error below.
+    }
+  }
+  throw new Error(`Server returned ${res.status}${text ? `: ${text}` : ""}`);
+}
+
 export interface RecentScan {
   id: string;
   product_name: string;
@@ -89,12 +129,7 @@ export async function requestScan(
     signal,
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(
-      `Server returned ${res.status}${detail ? `: ${detail}` : ""}`,
-    );
-  }
+  if (!res.ok) await throwFromResponse(res);
 
   return (await res.json()) as ScanResponse;
 }
@@ -122,12 +157,7 @@ export async function requestImageScan(
     signal,
   });
 
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(
-      `Server returned ${res.status}${detail ? `: ${detail}` : ""}`,
-    );
-  }
+  if (!res.ok) await throwFromResponse(res);
 
   return (await res.json()) as ScanResponse;
 }
