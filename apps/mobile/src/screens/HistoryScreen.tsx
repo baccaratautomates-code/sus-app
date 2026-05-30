@@ -52,7 +52,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   // the previous verdict instantly without re-scraping, so this is effectively
   // a "view detail" affordance without needing a separate /scans/:id endpoint.
   const openScan = (url: string) =>
-    navigation.navigate("Loading", { url });
+    navigation.navigate("Loading", { kind: "url", url });
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

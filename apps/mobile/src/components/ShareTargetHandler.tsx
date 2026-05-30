@@ -43,7 +43,7 @@ export function ShareTargetHandler() {
 // the navigation container has finished mounting, so we retry briefly.
 function routeToScan(url: string) {
   if (navigationRef.isReady()) {
-    navigationRef.navigate("Loading", { url });
+    navigationRef.navigate("Loading", { kind: "url", url });
     return;
   }
   let attempts = 0;
@@ -51,7 +51,7 @@ function routeToScan(url: string) {
     attempts += 1;
     if (navigationRef.isReady()) {
       clearInterval(id);
-      navigationRef.navigate("Loading", { url });
+      navigationRef.navigate("Loading", { kind: "url", url });
     } else if (attempts > 20) {
       clearInterval(id);
     }

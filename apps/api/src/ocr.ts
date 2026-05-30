@@ -1,0 +1,70 @@
+import { env } from "./env";
+
+interface OcrSpaceResponse {
+  ParsedResults?: Array<{ ParsedText?: string }>;
+  IsErroredOnProcessing?: boolean;
+  ErrorMessage?: string[] | string;
+}
+
+// Calls OCR.space — a free OCR API with 25K req/month on the developer tier.
+// We use OCREngine 2 because it handles screenshots with mixed UI chrome +
+// product text much better than engine 1.
+export async function ocrImage(base64Jpeg: string): Promise<string> {
+  const form = new FormData();
+  form.append("base64Image", `data:image/jpeg;base64,${base64Jpeg}`);
+  form.append("language", "eng");
+  form.append("isOverlayRequired", "false");
+  form.append("scale", "true");
+  form.append("OCREngine", "2");
+
+  const res = await fetch("https://api.ocr.space/parse/image", {
+    method: "POST",
+    headers: { apikey: env.OCR_SPACE_API_KEY },
+    body: form,
+  });
+
+  if (!res.ok) {
+    throw new Error(`OCR.space returned ${res.status}`);
+  }
+
+  const data = (await res.json()) as OcrSpaceResponse;
+  if (data.IsErroredOnProcessing) {
+    const msg = Array.isArray(data.ErrorMessage)
+      ? data.ErrorMessage.join("; ")
+      : (data.ErrorMessage ?? "unknown OCR error");
+    throw new Error(`OCR error: ${msg}`);
+  }
+
+  return data.ParsedResults?.[0]?.ParsedText?.trim() ?? "";
+}
+
+// Pulls a plausible product/seller URL from OCR text. Order of preference:
+//   1. Explicit http(s)://… link (most reliable)
+//   2. www.<domain>/path (URL bar after autocomplete dropped the scheme)
+//   3. Bare marketplace domain anywhere in the text (e.g. "shopee.ph/abc")
+// Returns null if nothing usable is found — caller responds with Not Enough Info.
+export function extractUrl(text: string): string | null {
+  if (!text) return null;
+
+  const httpMatch = text.match(/https?:\/\/[^\s,]+/i);
+  if (httpMatch) return cleanTrailingPunctuation(httpMatch[0]);
+
+  const wwwMatch = text.match(/www\.[a-z0-9.-]+(?:\.[a-z]{2,})+(?:\/[^\s,]*)?/i);
+  if (wwwMatch) return `https://${cleanTrailingPunctuation(wwwMatch[0])}`;
+
+  // Bare marketplace domains — the URL bar often shows just the host once the
+  // user has tapped the autocomplete suggestion. Listed in rough order of
+  // demo relevance (PH-first).
+  const marketplaceMatch = text.match(
+    /\b(shopee\.ph|shopee\.com\.ph|lazada\.com\.ph|tiktok\.com\/@?[\w.-]+|facebook\.com\/marketplace\/item\/\d+|amazon\.com(?:\.[a-z]{2})?\/[^\s,]+)\b/i,
+  );
+  if (marketplaceMatch) return `https://${cleanTrailingPunctuation(marketplaceMatch[0])}`;
+
+  return null;
+}
+
+// OCR commonly attaches trailing dots, commas, brackets, and zero-width chars
+// to the end of URLs. Strip the common ones so the scan target is clean.
+function cleanTrailingPunctuation(url: string): string {
+  return url.replace(/[.,;)\]>​-‍﻿]+$/, "");
+}

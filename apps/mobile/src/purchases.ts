@@ -21,6 +21,11 @@ export const PRO_ENTITLEMENT_ID = "pro";
 // RevenueCat Offering identifier to load (use "default" unless you created a custom one).
 const OFFERING_ID = "default";
 
+// Tracks whether configure() has run. Every SDK call short-circuits when this
+// is false so we don't spew "no singleton instance" warnings on app boot —
+// the AuthProvider triggers a logOutPurchases() before user.id is known.
+let configured = false;
+
 /**
  * Call once on app start (in App.tsx), before any purchase or entitlement check.
  * Pass the authenticated user's ID so RevenueCat can sync purchase history across devices.
@@ -35,15 +40,16 @@ export function initializePurchases(appUserID?: string): void {
   }
   Purchases.setLogLevel(LOG_LEVEL.WARN);
   Purchases.configure({ apiKey: RC_API_KEY, appUserID });
+  configured = true;
   console.log("[purchases] RevenueCat configured", { appUserID });
 }
 
 /**
  * Returns true if the current user has an active Pro entitlement.
- * Always resolves — returns false on any error.
+ * Always resolves — returns false on any error or before configure() has run.
  */
 export async function getIsPro(): Promise<boolean> {
-  if (!RC_API_KEY) return false;
+  if (!RC_API_KEY || !configured) return false;
   try {
     const info: CustomerInfo = await Purchases.getCustomerInfo();
     return PRO_ENTITLEMENT_ID in info.entitlements.active;
@@ -86,10 +92,12 @@ export async function restorePurchases(): Promise<CustomerInfo> {
 }
 
 /**
- * Log out the current RevenueCat user (call on app sign-out).
+ * Log out the current RevenueCat user (call on app sign-out). No-op if
+ * configure() was never called — avoids the "no singleton instance" error
+ * during boot when the AuthProvider settles before a session exists.
  */
 export async function logOutPurchases(): Promise<void> {
-  if (!RC_API_KEY) return;
+  if (!RC_API_KEY || !configured) return;
   try {
     await Purchases.logOut();
   } catch (err) {

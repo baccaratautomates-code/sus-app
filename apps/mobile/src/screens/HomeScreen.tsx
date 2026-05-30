@@ -1,4 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useCallback, useState } from "react";
 import {
   Alert,
@@ -67,15 +68,45 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
 
     setScansLeft(scansLeft - 1);
     mockState.scansLeft = scansLeft - 1;
-    navigation.navigate("Loading", { url: trimmed });
+    navigation.navigate("Loading", { kind: "url", url: trimmed });
     setUrl("");
   };
 
-  const onUseImage = () =>
-    Alert.alert(
-      "Image upload",
-      "Image-based scanning is coming soon. For now, paste the listing URL.",
-    );
+  // PRD §3.1 image input. Launches the OS image picker (photo library on web;
+  // camera + library on native), then sends the chosen image base64 to the
+  // scan pipeline. The Loading screen handles the OCR-then-scan dance.
+  const onUseImage = async () => {
+    if (scansLeft <= 0) {
+      navigation.navigate("Paywall");
+      return;
+    }
+
+    // No media-library permission needed on iOS for the new ImagePicker —
+    // Apple handles consent inline. Android + web work the same way.
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      // Down-sample on the way out so we don't ship a 12MB iPhone shot to the
+      // OCR endpoint. 1280px on the long edge is plenty for URL bars + text.
+      quality: 0.7,
+      base64: true,
+      allowsEditing: false,
+    });
+
+    if (result.canceled) return;
+
+    const asset = result.assets[0];
+    if (!asset?.base64) {
+      Alert.alert(
+        "Couldn't read image",
+        "Try a different photo or paste the listing URL instead.",
+      );
+      return;
+    }
+
+    setScansLeft(scansLeft - 1);
+    mockState.scansLeft = scansLeft - 1;
+    navigation.navigate("Loading", { kind: "image", image: asset.base64 });
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

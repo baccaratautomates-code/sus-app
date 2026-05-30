@@ -1,9 +1,10 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import Groq from "groq-sdk";
-import type { ScanRequest } from "@sus/shared";
+import type { ScanRequest, ScanResponse } from "@sus/shared";
 import { bootstrapSchema, sql } from "./db";
 import { env } from "./env";
+import { extractUrl, ocrImage } from "./ocr";
 import { checkQuota, consumeQuota } from "./quota";
 import { runScan } from "./scan";
 import { handleRevenueCatEvent } from "./webhook";
@@ -117,6 +118,93 @@ app.post("/scan", async (c) => {
     }
     console.error("[scan] failed", err);
     return c.json({ error: "scan failed" }, 500);
+  }
+});
+
+// Image scan (PRD §3.1). Mobile sends a base64-encoded JPEG; we OCR it, look
+// for a marketplace URL in the extracted text, and either (a) run the standard
+// scan pipeline on that URL or (b) return Not Enough Info with a helpful nudge.
+// Quota gating mirrors /scan exactly so the two endpoints share enforcement.
+app.post("/scan/image", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid json body" }, 400);
+  }
+  const o = body as Record<string, unknown>;
+
+  if (typeof o.user_id !== "string" || o.user_id.length === 0) {
+    return c.json({ error: "user_id required" }, 400);
+  }
+  if (typeof o.image !== "string" || o.image.length === 0) {
+    return c.json({ error: "image (base64) required" }, 400);
+  }
+  const userId = o.user_id;
+  const imageBase64 = o.image;
+
+  let quotaIsPro = false;
+  try {
+    const quota = await checkQuota(userId);
+    quotaIsPro = quota.isPro;
+    if (!quota.allowed) {
+      return c.json(
+        {
+          error: "quota_exceeded",
+          message: quota.reason ?? "Free quota exceeded.",
+          scans_used: quota.scansUsed,
+          scans_remaining: 0,
+          is_pro: quota.isPro,
+        },
+        402,
+      );
+    }
+  } catch (err) {
+    console.error(`[scan/image] quota check failed user=${userId}: ${(err as Error).message} — allowing scan (silent degrade)`);
+  }
+
+  try {
+    const ocrText = await ocrImage(imageBase64);
+    console.log(`[scan/image] OCR extracted ${ocrText.length} chars user=${userId}`);
+
+    const extractedUrl = extractUrl(ocrText);
+    if (extractedUrl) {
+      console.log(`[scan/image] extracted URL ${extractedUrl} — running standard scan`);
+      const response = await runScan({
+        kind: "url",
+        url: extractedUrl,
+        user_id: userId,
+      });
+      try {
+        await consumeQuota(userId);
+      } catch (err) {
+        console.error(`[scan/image] consumeQuota failed user=${userId}: ${(err as Error).message}`);
+      }
+      return c.json({ ...response, is_pro: quotaIsPro });
+    }
+
+    // No URL extracted. Return Not Enough Info with copy that nudges the user
+    // toward a clearer photo or pasting the URL directly. We don't burn quota
+    // on this failure — the user got no value out of the scan.
+    const summary = ocrText
+      ? "We couldn't find a product URL in the image. Try cropping the screenshot so the address bar is visible, or paste the listing URL directly."
+      : "We couldn't read text from this image. Try a clearer photo or paste the listing URL directly.";
+
+    const response: ScanResponse = {
+      trust_score: 0,
+      verdict: "Not Enough Info",
+      summary,
+      red_flags: [],
+      green_flags: [],
+      confidence: "Low",
+      sources: [],
+      scanned_at: new Date().toISOString(),
+      input: { kind: "image", image_id: "uploaded", user_id: userId },
+    };
+    return c.json({ ...response, is_pro: quotaIsPro });
+  } catch (err) {
+    console.error("[scan/image] failed", err);
+    return c.json({ error: "image scan failed" }, 500);
   }
 });
 

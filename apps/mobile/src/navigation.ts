@@ -8,7 +8,11 @@ export type RootStackParamList = {
   Home: undefined;
   History: undefined;
   Settings: undefined;
-  Loading: { url: string };
+  // Loading runs the scan; either kind triggers the same UI but the network
+  // call branches: "url" → POST /scan, "image" → POST /scan/image with base64.
+  Loading:
+    | { kind: "url"; url: string }
+    | { kind: "image"; image: string };
   Verdict: { result: ScanResponse };
   Paywall: undefined;
 };

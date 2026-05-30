@@ -98,3 +98,36 @@ export async function requestScan(
 
   return (await res.json()) as ScanResponse;
 }
+
+// Image scan request. Image is sent as a base64-encoded string in the JSON
+// body so we don't have to deal with multipart on the Bun side. The backend
+// OCRs the image, extracts any URL or brand text, then runs the standard
+// signal pipeline on whatever it found.
+export async function requestImageScan(
+  imageBase64: string,
+  signal?: AbortSignal,
+): Promise<ScanResponse> {
+  const userId = await currentUserId();
+  if (!userId) {
+    throw new Error("Not signed in. Please sign in before scanning.");
+  }
+  const res = await fetch(`${API_BASE}/scan/image`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      kind: "image",
+      image: imageBase64,
+      user_id: userId,
+    }),
+    signal,
+  });
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(
+      `Server returned ${res.status}${detail ? `: ${detail}` : ""}`,
+    );
+  }
+
+  return (await res.json()) as ScanResponse;
+}

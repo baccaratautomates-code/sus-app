@@ -22,9 +22,12 @@
             "NSExtensionActivationSupportsText": true,
             "NSExtensionActivationSupportsWebURLWithMaxCount": 1
           },
-          "androidIntentFilters": ["text/*"]
+          "androidIntentFilters": [
+            "text/*"
+          ]
         }
-      ]
+      ],
+      "expo-font"
     ],
     "scheme": "sus",
     "web": {

@@ -9,7 +9,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { requestScan } from "../store";
+import { requestImageScan, requestScan } from "../store";
 import {
   colors,
   elevation,
@@ -21,13 +21,25 @@ import type { ScreenProps } from "../navigation";
 
 // PRD §2 calls for rotating investigative status text during the scan. These
 // match the PRD copy so the user sees specifically what we're checking.
-const STATUSES = [
+const URL_STATUSES = [
   "Checking seller history…",
   "Scanning reviews…",
   "Cross-referencing scam databases…",
   "Validating price against market…",
   "Analyzing domain age…",
   "Verifying buyer-protection coverage…",
+] as const;
+
+// Image scans run an extra OCR step before the standard pipeline; the rotating
+// text leads with what we're doing differently so the user knows the wait is
+// for image processing, not a hung scan.
+const IMAGE_STATUSES = [
+  "Reading image…",
+  "Extracting product details…",
+  "Locating listing online…",
+  "Checking seller history…",
+  "Cross-referencing scam databases…",
+  "Validating price against market…",
 ] as const;
 
 const STATUS_INTERVAL_MS = 1800;
@@ -38,6 +50,9 @@ type ScanState = { kind: "loading" } | { kind: "error"; message: string };
 export default function LoadingScreen({ navigation, route }: ScreenProps<"Loading">) {
   const [statusIdx, setStatusIdx] = useState(0);
   const [state, setState] = useState<ScanState>({ kind: "loading" });
+
+  const isImageScan = route.params.kind === "image";
+  const statuses = isImageScan ? IMAGE_STATUSES : URL_STATUSES;
 
   // Indeterminate progress-bar slide animation.
   const slide = useRef(new Animated.Value(0)).current;
@@ -59,7 +74,10 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
     timeoutRef.current = setTimeout(() => controller.abort(), SCAN_TIMEOUT_MS);
 
     try {
-      const result = await requestScan(route.params.url, controller.signal);
+      const result =
+        route.params.kind === "image"
+          ? await requestImageScan(route.params.image, controller.signal)
+          : await requestScan(route.params.url, controller.signal);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       navigation.replace("Verdict", { result });
     } catch (err) {
@@ -72,13 +90,13 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
         : `Couldn't reach the scan service. ${(err as Error).message}`;
       setState({ kind: "error", message });
     }
-  }, [navigation, route.params.url]);
+  }, [navigation, route.params]);
 
   useEffect(() => {
     if (state.kind !== "loading") return;
 
     const tick = setInterval(
-      () => setStatusIdx((i) => (i + 1) % STATUSES.length),
+      () => setStatusIdx((i) => (i + 1) % statuses.length),
       STATUS_INTERVAL_MS,
     );
     const slideAnim = Animated.loop(
@@ -189,9 +207,9 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
         </View>
 
         <View style={styles.statusWrap}>
-          <Text style={styles.statusHeading}>{STATUSES[statusIdx]}</Text>
+          <Text style={styles.statusHeading}>{statuses[statusIdx]}</Text>
           <Text style={styles.statusSub}>
-            Running across {STATUSES.length * 7}+ security heuristics
+            Running across {statuses.length * 7}+ security heuristics
           </Text>
         </View>
       </View>
