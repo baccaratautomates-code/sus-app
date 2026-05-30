@@ -13,7 +13,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { VerdictBadge } from "../components/VerdictBadge";
-import { fetchRecentScans, mockState, type RecentScan } from "../store";
+import { fetchQuota, fetchRecentScans, mockState, type RecentScan } from "../store";
 import {
   colors,
   elevation,
@@ -30,13 +30,20 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   const [scans, setScans] = useState<RecentScan[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
 
   const load = useCallback(async () => {
-    const rows = await fetchRecentScans(HISTORY_LIMIT);
+    const [rows, quota] = await Promise.all([
+      fetchRecentScans(HISTORY_LIMIT),
+      fetchQuota(),
+    ]);
     setScans(rows);
+    if (quota) setScansLeft(quota.scansLeft);
     setLoading(false);
     setRefreshing(false);
   }, []);
+
+  const isUnlimited = scansLeft < 0;
 
   useFocusEffect(
     useCallback(() => {
@@ -61,7 +68,9 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         <BrandMark />
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
-            {mockState.scansLeft} {mockState.scansLeft === 1 ? "scan" : "scans"} left
+            {isUnlimited
+              ? "Unlimited"
+              : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left`}
           </Text>
         </View>
       </View>

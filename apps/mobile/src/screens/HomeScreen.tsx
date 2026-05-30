@@ -16,6 +16,7 @@ import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { VerdictBadge } from "../components/VerdictBadge";
 import {
+  fetchQuota,
   fetchRecentScans,
   mockState,
   type RecentScan,
@@ -52,23 +53,31 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
       fetchRecentScans(5).then((scans) => {
         if (!cancelled) setRecentScans(scans);
       });
+      // Pull fresh quota state from the server every time Home gets focus —
+      // after a scan completes the user comes back here and the pill should
+      // reflect the real remaining count, not whatever we last cached.
+      fetchQuota().then((q) => {
+        if (!cancelled && q) setScansLeft(q.scansLeft);
+      });
       return () => {
         cancelled = true;
       };
     }, []),
   );
 
+  // scansLeft === -1 is the unlimited sentinel (Pro / BYPASS_USER_IDS). Don't
+  // gate scans for them. Only block when the count is exactly 0.
+  const isUnlimited = scansLeft < 0;
+
   const onCheck = () => {
     const trimmed = url.trim();
     if (!trimmed) return;
 
-    if (scansLeft <= 0) {
+    if (!isUnlimited && scansLeft <= 0) {
       navigation.navigate("Paywall");
       return;
     }
 
-    setScansLeft(scansLeft - 1);
-    mockState.scansLeft = scansLeft - 1;
     navigation.navigate("Loading", { kind: "url", url: trimmed });
     setUrl("");
   };
@@ -77,7 +86,7 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
   // camera + library on native), then sends the chosen image base64 to the
   // scan pipeline. The Loading screen handles the OCR-then-scan dance.
   const onUseImage = async () => {
-    if (scansLeft <= 0) {
+    if (!isUnlimited && scansLeft <= 0) {
       navigation.navigate("Paywall");
       return;
     }
@@ -106,8 +115,6 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
       return;
     }
 
-    setScansLeft(scansLeft - 1);
-    mockState.scansLeft = scansLeft - 1;
     navigation.navigate("Loading", { kind: "image", image: asset.base64 });
   };
 
@@ -117,7 +124,9 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
         <BrandMark />
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
-            {scansLeft} {scansLeft === 1 ? "scan" : "scans"} left
+            {isUnlimited
+              ? "Unlimited"
+              : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left`}
           </Text>
         </View>
       </View>

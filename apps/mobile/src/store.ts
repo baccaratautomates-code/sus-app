@@ -68,17 +68,44 @@ export interface RecentScan {
   scanned_at: string;
 }
 
-// Mock in-memory state for the prototype. Replace with persistent storage later.
-// scansLeft / isPro are read by HomeScreen, VerdictScreen, PaywallScreen.
-// recentScans is no longer used as the source of truth — HomeScreen now fetches
-// real history from GET /me/scans. Kept here as a typed empty fallback.
+// Shared in-memory state for the prototype. Mutated by fetchQuota() after each
+// scan / on focus, read by HomeScreen / VerdictScreen / HistoryScreen for the
+// "X scans left" pill. scansLeft = -1 is the unlimited sentinel (Pro users or
+// BYPASS_USER_IDS-listed test accounts) — display "Unlimited" in that case.
+// Defaults to 3 (the free-tier monthly quota) until the first fetchQuota()
+// call replaces it with the real backend value.
 export const mockState = {
-  // Dev: bumped from 3 to 999 so we don't hit the paywall while iterating.
-  // Real free-tier enforcement (3/mo) will move server-side once auth lands.
-  scansLeft: 999,
+  scansLeft: 3,
   isPro: false,
   recentScans: [] as RecentScan[],
 };
+
+// GET /me/quota — refreshes mockState.scansLeft + isPro from the server.
+// Returns the same shape it writes to mockState so callers can read it
+// synchronously without re-importing mockState. Silently no-ops on any
+// failure (no session, network error, server 500) so the pill keeps showing
+// the previous value instead of jumping to 0.
+export async function fetchQuota(): Promise<{ scansLeft: number; isPro: boolean } | null> {
+  try {
+    const userId = await currentUserId();
+    if (!userId) return null;
+    const res = await fetch(
+      `${API_BASE}/me/quota?user_id=${encodeURIComponent(userId)}`,
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      scans_remaining?: number;
+      is_pro?: boolean;
+    };
+    const scansLeft = body.scans_remaining ?? 0;
+    const isPro = body.is_pro ?? false;
+    mockState.scansLeft = scansLeft;
+    mockState.isPro = isPro;
+    return { scansLeft, isPro };
+  } catch {
+    return null;
+  }
+}
 
 // GET /me/scans — returns the user's recent scans newest first.
 // Returns an empty array on any failure (network, server, no-session) so the

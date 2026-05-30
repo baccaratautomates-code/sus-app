@@ -1,5 +1,5 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Linking,
@@ -15,7 +15,7 @@ import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
-import { mockState } from "../store";
+import { fetchQuota, mockState } from "../store";
 import {
   DISCLAIMER,
   colors,
@@ -58,6 +58,18 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   const { result } = route.params;
   const { isPro } = usePro();
   const [sourcesOpen, setSourcesOpen] = useState(false);
+  // Refresh the quota pill on mount — a scan just completed, so the server's
+  // count has decremented. Without this the pill keeps the pre-scan number
+  // (or the boot default) until the user navigates Home.
+  const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
+  useEffect(() => {
+    let cancelled = false;
+    fetchQuota().then((q) => {
+      if (!cancelled && q) setScansLeft(q.scansLeft);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const isUnlimited = scansLeft < 0;
 
   const accent = verdictColor(result.verdict);
   const accentContainer = verdictContainerColor(result.verdict);
@@ -94,7 +106,9 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
         <BrandMark />
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
-            {mockState.scansLeft} scans left
+            {isUnlimited
+              ? "Unlimited"
+              : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left`}
           </Text>
         </View>
       </View>

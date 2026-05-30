@@ -74,6 +74,28 @@ app.get("/me/scans", async (c) => {
   }
 });
 
+// Current quota status for the given user. Used by HomeScreen / VerdictScreen /
+// HistoryScreen to render the "X scans left" pill against real backend state
+// instead of a hardcoded mock. Returns scans_remaining = -1 as a sentinel for
+// "unlimited" (Pro users and BYPASS_USER_IDS-listed test accounts).
+app.get("/me/quota", async (c) => {
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+
+  try {
+    const quota = await checkQuota(userId);
+    const remaining = Number.isFinite(quota.scansRemaining) ? quota.scansRemaining : -1;
+    return c.json({
+      scans_used: quota.scansUsed,
+      scans_remaining: remaining,
+      is_pro: quota.isPro,
+    });
+  } catch (err) {
+    console.error(`[me/quota] failed user=${userId}: ${(err as Error).message}`);
+    return c.json({ error: "failed to load quota" }, 500);
+  }
+});
+
 app.post("/scan", async (c) => {
   let body: unknown;
   try {
