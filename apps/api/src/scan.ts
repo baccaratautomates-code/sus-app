@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ScanRequest, ScanResponse, Signal, Source } from "@sus/shared";
+import type {
+  NormalizedInput,
+  ScanRequest,
+  ScanResponse,
+  Signal,
+  Source,
+} from "@sus/shared";
 import { getCachedVerdict, setCachedVerdict } from "./cache";
 import { sql } from "./db";
 import { normalizeInput } from "./normalize";
@@ -16,7 +22,24 @@ const MIN_SOURCE_COVERAGE = 3;
 // (PRD §5 defamation safety).
 const STRUCTURAL_RISK_MARKER = /PRD §3\.2 flags/;
 
-function cacheTarget(req: ScanRequest): string {
+// Cache key for the 7-day Redis verdict cache. For marketplace URLs we key by
+// (marketplace, shop_id[, item_id]) so two scans of the same Shopee listing
+// hit the same entry regardless of how the URL was reached (paste, OCR of a
+// screenshot, share-sheet). Otherwise we'd see drift like 95→85 because
+// (a) the raw URL strings differ (query params, OCR truncation) so each scan
+// cache-misses, (b) the live Shopee follower count moves between scrapes,
+// (c) Groq inference isn't bit-deterministic even at temperature 0. The URL
+// itself is still used as the scrape input and the History-row label — only
+// the cache lookup key changes.
+function canonicalCacheKey(
+  req: ScanRequest,
+  normalized: NormalizedInput | null,
+): string {
+  if (normalized?.marketplace && normalized.shop_id) {
+    return normalized.item_id
+      ? `${normalized.marketplace}:${normalized.shop_id}:${normalized.item_id}`
+      : `${normalized.marketplace}:${normalized.shop_id}`;
+  }
   if (req.kind === "url") return req.url ?? "";
   return `image:${req.image_id ?? ""}`;
 }
@@ -38,27 +61,36 @@ function notEnoughInfo(req: ScanRequest, sources: Source[]): ScanResponse {
 
 export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   console.log(`[scan] runScan kind=${req.kind} user=${req.user_id}`);
-  const target = cacheTarget(req);
 
-  // 1. Cache check (Redis, 7-day TTL). Cache hits still get persisted as a scan
-  //    for this user so their recent-history reflects what they actually checked.
-  const cached = await getCachedVerdict(target);
-  if (cached) {
-    console.log(`[scan] cache HIT target=${target} verdict="${cached.verdict}" — skipping fan-out`);
-    await persistScan(req, target, cached);
-    return cached;
-  }
-  console.log(`[scan] cache MISS target=${target} — proceeding to fan-out`);
-
-  // 2. Input normalization (PRD §3.1). For marketplace URLs this extracts
-  //    shop_id / item_id so marketplace-aware scrapers can hit seller pages
-  //    instead of just rating the marketplace domain.
+  // 1. Input normalization (PRD §3.1). Moved BEFORE the cache check so the
+  //    cache key can be canonical — same shop_id+item_id across paste vs OCR
+  //    vs share-sheet maps to one entry.
   const normalized = req.kind === "url" ? normalizeInput(req.url ?? "") : null;
   if (normalized) {
     console.log(
       `[scan] normalized: domain=${normalized.domain} marketplace=${normalized.marketplace ?? "none"} shop_id=${normalized.shop_id ?? "?"} item_id=${normalized.item_id ?? "?"}`,
     );
   }
+
+  // `target` is the URL the scrapers and synthesis prompt see (and what gets
+  // stored as the History row label). `cacheKey` is the dedupe identity for
+  // Redis — usually identical, but for marketplace URLs they diverge so query
+  // params and OCR truncation don't cause cache misses.
+  const target = req.kind === "url" ? (req.url ?? "") : `image:${req.image_id ?? ""}`;
+  const cacheKey = canonicalCacheKey(req, normalized);
+  if (cacheKey !== target) {
+    console.log(`[scan] cache key canonicalized: ${target} → ${cacheKey}`);
+  }
+
+  // 2. Cache check (Redis, 7-day TTL). Cache hits still get persisted as a scan
+  //    for this user so their recent-history reflects what they actually checked.
+  const cached = await getCachedVerdict(cacheKey);
+  if (cached) {
+    console.log(`[scan] cache HIT key=${cacheKey} verdict="${cached.verdict}" — skipping fan-out`);
+    await persistScan(req, target, cached);
+    return cached;
+  }
+  console.log(`[scan] cache MISS key=${cacheKey} — proceeding to fan-out`);
 
   // 3. Fan out to scraper workers via BullMQ; wait up to 25s.
   const scanId = randomUUID();
@@ -70,7 +102,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const distinctSourceUrls = new Set(sources.map((s) => s.url)).size;
   if (distinctSourceUrls < MIN_SOURCE_COVERAGE) {
     const response = notEnoughInfo(req, sources);
-    await setCachedVerdict(target, response);
+    await setCachedVerdict(cacheKey, response);
     await persistScan(req, target, response);
     return response;
   }
@@ -96,7 +128,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       scanned_at: new Date().toISOString(),
       input: req,
     };
-    await setCachedVerdict(target, response);
+    await setCachedVerdict(cacheKey, response);
     await persistScan(req, target, response);
     return response;
   }
@@ -142,7 +174,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     input: req,
   };
 
-  await setCachedVerdict(target, response);
+  await setCachedVerdict(cacheKey, response);
   await persistScan(req, target, response);
   return response;
 }
