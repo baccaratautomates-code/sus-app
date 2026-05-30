@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
+import { BrandMark } from "../components/BrandMark";
 import { VerdictBadge } from "../components/VerdictBadge";
 import {
   fetchRecentScans,
@@ -113,10 +114,7 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <View style={styles.brand}>
-          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-          <Text style={styles.brandName}>Sus</Text>
-        </View>
+        <BrandMark />
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
             {scansLeft} {scansLeft === 1 ? "scan" : "scans"} left

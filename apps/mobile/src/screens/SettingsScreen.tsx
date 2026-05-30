@@ -3,6 +3,7 @@ import Constants from "expo-constants";
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomNav } from "../components/BottomNav";
+import { BrandMark } from "../components/BrandMark";
 import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
 import { usePro } from "../context/ProContext";
@@ -49,10 +50,7 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <View style={styles.brand}>
-          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-          <Text style={styles.brandName}>Sus</Text>
-        </View>
+        <BrandMark />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>

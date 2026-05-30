@@ -9,6 +9,7 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { BrandMark } from "../components/BrandMark";
 import { QuotaExceededError, requestImageScan, requestScan } from "../store";
 import {
   colors,
@@ -183,10 +184,7 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.header}>
-        <View style={styles.brand}>
-          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-          <Text style={styles.brandName}>Sus</Text>
-        </View>
+        <BrandMark />
         <View style={styles.statusPill}>
           <Text style={styles.statusPillText}>Investigating…</Text>
         </View>

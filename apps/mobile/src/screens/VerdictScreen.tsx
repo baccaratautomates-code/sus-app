@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { Confidence, Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
+import { BrandMark } from "../components/BrandMark";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
 import { mockState } from "../store";
@@ -90,10 +91,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
-        <View style={styles.brand}>
-          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-          <Text style={styles.brandName}>Sus</Text>
-        </View>
+        <BrandMark />
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
             {mockState.scansLeft} scans left
