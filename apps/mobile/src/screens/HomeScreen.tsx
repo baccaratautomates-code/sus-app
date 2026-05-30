@@ -172,7 +172,7 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
         <View style={styles.recentHeaderRow}>
           <Text style={styles.sectionHeading}>RECENT SCANS</Text>
           {recentScans.length > 0 && (
-            <Pressable onPress={() => Alert.alert("Coming soon", "Full history view coming soon.")}>
+            <Pressable onPress={() => navigation.navigate("History")}>
               <Text style={styles.viewAll}>View all</Text>
             </Pressable>
           )}
@@ -393,12 +393,14 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   recentName: {
-    ...typography.labelMd,
+    ...typography.bodyMd,
     color: colors.text,
+    fontWeight: "400", fontFamily: "Inter_400Regular",
   },
   recentMeta: {
     ...typography.caption,
     color: colors.textMuted,
+    fontWeight: "400", fontFamily: "Inter_400Regular",
   },
   emptyState: {
     backgroundColor: colors.surfaceContainerLow,

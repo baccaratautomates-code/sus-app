@@ -187,8 +187,16 @@ const styles = StyleSheet.create({
   },
   accent: { width: 4, alignSelf: "stretch" },
   rowBody: { flex: 1, paddingVertical: spacing.md, gap: 2 },
-  rowTitle: { ...typography.labelMd, color: colors.text },
-  rowMeta: { ...typography.caption, color: colors.textMuted },
+  rowTitle: {
+    ...typography.bodyMd,
+    color: colors.text,
+    fontWeight: "400", fontFamily: "Inter_400Regular",
+  },
+  rowMeta: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: "400", fontFamily: "Inter_400Regular",
+  },
   centerWrap: {
     flex: 1,
     alignItems: "center",
