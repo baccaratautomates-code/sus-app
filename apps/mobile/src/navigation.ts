@@ -5,6 +5,7 @@ import type { ScanResponse } from "@sus/shared";
 export type RootStackParamList = {
   Onboarding: undefined;
   Home: undefined;
+  History: undefined;
   Loading: { url: string };
   Verdict: { result: ScanResponse };
   Paywall: undefined;

@@ -49,10 +49,14 @@ export function VerdictBadge({ verdict, size = "md" }: Props) {
 const styles = StyleSheet.create({
   badge: {
     borderRadius: radius.full,
-    alignSelf: "flex-start",
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
   },
   label: {
     ...typography.labelMd,
     letterSpacing: 0.5,
+    textAlign: "center",
+    includeFontPadding: false,
   },
 });

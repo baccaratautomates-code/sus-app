@@ -232,7 +232,7 @@ const styles = StyleSheet.create({
   brandName: {
     ...typography.headlineLgMobile,
     color: colors.primary,
-    fontWeight: "900",
+    fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
   statusPill: {
@@ -322,7 +322,7 @@ const styles = StyleSheet.create({
   },
   analyzingBtnLabel: {
     color: colors.onPrimary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
   cancel: { alignSelf: "center", paddingVertical: spacing.sm },
@@ -359,7 +359,7 @@ const styles = StyleSheet.create({
   },
   retryLabel: {
     color: colors.onPrimary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
 });

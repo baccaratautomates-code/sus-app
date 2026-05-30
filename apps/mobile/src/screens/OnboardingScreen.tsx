@@ -207,13 +207,13 @@ const styles = StyleSheet.create({
   brandName: {
     ...typography.headlineMdMobile,
     color: colors.primary,
-    fontWeight: "900",
+    fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
   skip: {
     ...typography.labelMd,
     color: colors.primary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
   },
   slide: {
     flex: 1,
@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     ...typography.headlineLgMobile,
     color: colors.text,
     textAlign: "center",
-    fontWeight: "800",
+    fontWeight: "800", fontFamily: "Inter_800ExtraBold",
     paddingHorizontal: spacing.sm,
   },
   body: {
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
   tileNumber: {
     color: colors.onPrimary,
     fontSize: 36,
-    fontWeight: "900",
+    fontWeight: "900", fontFamily: "Inter_900Black",
   },
   footer: {
     paddingHorizontal: spacing.lg,
@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
   nextLinkLabel: {
     ...typography.labelMd,
     color: colors.primary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
   nextSpacer: { height: 44 },
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnLabel: {
     color: colors.onPrimary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
 });

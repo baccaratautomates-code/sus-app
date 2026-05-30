@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
   regionLabel: {
     ...typography.caption,
     color: colors.textMuted,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
   },
   regionLabelActive: { color: colors.primary },
   planList: { gap: spacing.sm, marginBottom: spacing.lg },
@@ -381,14 +381,14 @@ const styles = StyleSheet.create({
   bestValueLabel: {
     color: colors.onPrimary,
     fontSize: 10,
-    fontWeight: "800",
+    fontWeight: "800", fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.5,
   },
   planLeft: { flex: 1 },
   planTitle: {
     ...typography.labelMd,
     color: colors.text,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
   },
   planPrice: {
     ...typography.headlineMdMobile,
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
   planNote: {
     ...typography.caption,
     color: colors.onLegitContainer,
-    fontWeight: "600",
+    fontWeight: "600", fontFamily: "Inter_600SemiBold",
     marginTop: 2,
   },
   planRadio: {
@@ -456,7 +456,7 @@ const styles = StyleSheet.create({
   ctaLabel: {
     color: colors.onPrimary,
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "800", fontFamily: "Inter_800ExtraBold",
   },
   restore: {
     alignItems: "center",

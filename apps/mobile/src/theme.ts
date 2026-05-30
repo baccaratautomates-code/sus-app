@@ -96,42 +96,58 @@ export function onVerdictContainerColor(v: Verdict): string {
   }
 }
 
+// Inter font-family names — match the @expo-google-fonts/inter exports loaded
+// at app boot in App.tsx. Using fontFamily directly (instead of relying on
+// fontWeight) is necessary because Inter ships each weight as its own face;
+// fontWeight alone would fall back to the system font on most platforms.
+const FONT = {
+  regular: "Inter_400Regular",
+  medium: "Inter_500Medium",
+  semibold: "Inter_600SemiBold",
+  bold: "Inter_700Bold",
+} as const;
+
 // Typography scale (from DESIGN.md). Use these as inline styles in StyleSheet.
 export const typography = {
   displayScore: {
+    fontFamily: FONT.bold,
     fontSize: 72,
     lineHeight: 72,
     fontWeight: "700" as const,
     letterSpacing: -2.88, // -0.04em ≈ -0.04 * 72
   },
   headlineLg: {
+    fontFamily: FONT.bold,
     fontSize: 32,
     lineHeight: 40,
     fontWeight: "700" as const,
     letterSpacing: -0.64,
   },
   headlineLgMobile: {
+    fontFamily: FONT.bold,
     fontSize: 28,
     lineHeight: 36,
     fontWeight: "700" as const,
     letterSpacing: -0.56,
   },
   headlineMd: {
+    fontFamily: FONT.semibold,
     fontSize: 24,
     lineHeight: 32,
     fontWeight: "600" as const,
     letterSpacing: -0.24,
   },
   headlineMdMobile: {
+    fontFamily: FONT.semibold,
     fontSize: 20,
     lineHeight: 28,
     fontWeight: "600" as const,
     letterSpacing: -0.2,
   },
-  bodyLg: { fontSize: 18, lineHeight: 28, fontWeight: "400" as const },
-  bodyMd: { fontSize: 16, lineHeight: 24, fontWeight: "400" as const },
-  labelMd: { fontSize: 14, lineHeight: 20, fontWeight: "600" as const },
-  caption: { fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
+  bodyLg: { fontFamily: FONT.regular, fontSize: 18, lineHeight: 28, fontWeight: "400" as const },
+  bodyMd: { fontFamily: FONT.regular, fontSize: 16, lineHeight: 24, fontWeight: "400" as const },
+  labelMd: { fontFamily: FONT.semibold, fontSize: 14, lineHeight: 20, fontWeight: "600" as const },
+  caption: { fontFamily: FONT.medium, fontSize: 12, lineHeight: 16, fontWeight: "500" as const },
 } as const;
 
 // 4px-based spacing scale.

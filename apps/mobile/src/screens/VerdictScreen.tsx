@@ -90,23 +90,9 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
-        <View style={styles.headerLeft}>
-          <Pressable
-            onPress={() => navigation.goBack()}
-            hitSlop={12}
-            style={({ pressed }) => [
-              styles.backBtn,
-              { opacity: pressed ? 0.6 : 1 },
-            ]}
-            accessibilityLabel="Back"
-            accessibilityRole="button"
-          >
-            <MaterialIcons name="arrow-back" size={24} color={colors.text} />
-          </Pressable>
-          <View style={styles.brand}>
-            <MaterialIcons name="verified-user" size={28} color={colors.primary} />
-            <Text style={styles.brandName}>Sus</Text>
-          </View>
+        <View style={styles.brand}>
+          <MaterialIcons name="verified-user" size={28} color={colors.primary} />
+          <Text style={styles.brandName}>Sus</Text>
         </View>
         <View style={styles.scansPill}>
           <Text style={styles.scansPillText}>
@@ -299,24 +285,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceContainerHighest,
   },
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  backBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: radius.full,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceContainerLow,
-  },
   brand: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   brandName: {
     ...typography.headlineLgMobile,
     color: colors.primary,
-    fontWeight: "900",
+    fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
   scansPill: {
@@ -374,7 +347,7 @@ const styles = StyleSheet.create({
   },
   confidenceValue: {
     ...typography.labelMd,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
   },
   summary: {
     ...typography.bodyMd,
@@ -470,7 +443,7 @@ const styles = StyleSheet.create({
   },
   actionLabel: {
     ...typography.caption,
-    fontWeight: "600",
+    fontWeight: "600", fontFamily: "Inter_600SemiBold",
   },
   proBadge: {
     position: "absolute",
@@ -484,7 +457,7 @@ const styles = StyleSheet.create({
   proBadgeLabel: {
     color: colors.onPrimary,
     fontSize: 9,
-    fontWeight: "800",
+    fontWeight: "800", fontFamily: "Inter_800ExtraBold",
     letterSpacing: 0.5,
   },
   disclaimer: {

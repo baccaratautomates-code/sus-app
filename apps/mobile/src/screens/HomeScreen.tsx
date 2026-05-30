@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   brandName: {
     ...typography.headlineLgMobile,
     color: colors.primary,
-    fontWeight: "900",
+    fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
   scansPill: {
@@ -309,7 +309,7 @@ const styles = StyleSheet.create({
   },
   primaryBtnLabel: {
     color: colors.onPrimary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
   secondaryBtn: {
@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
   },
   secondaryBtnLabel: {
     color: colors.text,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
   },
   sectionHeading: {
@@ -358,7 +358,7 @@ const styles = StyleSheet.create({
   howLabel: {
     ...typography.caption,
     color: colors.text,
-    fontWeight: "600",
+    fontWeight: "600", fontFamily: "Inter_600SemiBold",
   },
   recentHeaderRow: {
     flexDirection: "row",
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
   viewAll: {
     ...typography.labelMd,
     color: colors.primary,
-    fontWeight: "700",
+    fontWeight: "700", fontFamily: "Inter_700Bold",
   },
   recentList: { gap: spacing.sm },
   recentRow: {

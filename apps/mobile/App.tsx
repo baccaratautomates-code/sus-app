@@ -1,9 +1,19 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+  Inter_900Black,
+  useFonts,
+} from "@expo-google-fonts/inter";
 import { StatusBar } from "expo-status-bar";
 import { useEffect, useState } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
+import HistoryScreen from "./src/screens/HistoryScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import LoadingScreen from "./src/screens/LoadingScreen";
 import OnboardingScreen from "./src/screens/OnboardingScreen";
@@ -34,6 +44,17 @@ export default function App() {
   const [initialRoute, setInitialRoute] =
     useState<keyof RootStackParamList | null>(null);
 
+  // Load Inter at app boot. Until fonts load, we hold on a blank screen so
+  // typography doesn't flash from system-font to Inter once styles resolve.
+  const [fontsLoaded] = useFonts({
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+    Inter_900Black,
+  });
+
   useEffect(() => {
     // Initialize RevenueCat once on app start.
     // Replace "test-user" with your real auth user ID when auth is wired.
@@ -47,7 +68,7 @@ export default function App() {
     isOnboarded().then((seen) => setInitialRoute(seen ? "Home" : "Onboarding"));
   }, []);
 
-  if (initialRoute === null) {
+  if (initialRoute === null || !fontsLoaded) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
@@ -74,6 +95,11 @@ export default function App() {
             <Stack.Screen
               name="Home"
               component={HomeScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="History"
+              component={HistoryScreen}
               options={{ headerShown: false }}
             />
             <Stack.Screen

@@ -39,6 +39,10 @@ export function BottomNav({ active }: Props) {
       navigation.popToTop();
       return;
     }
+    if (tab === "history") {
+      navigation.navigate("History");
+      return;
+    }
     Alert.alert("Coming soon", `${capitalize(tab)} isn't built yet.`);
   };
 
@@ -111,6 +115,6 @@ const styles = StyleSheet.create({
   },
   label: {
     ...typography.caption,
-    fontWeight: "500",
+    fontWeight: "500", fontFamily: "Inter_500Medium",
   },
 });
