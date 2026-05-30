@@ -192,7 +192,13 @@ app.post("/scan/image", async (c) => {
 
   try {
     const ocrText = await ocrImage(imageBase64);
-    console.log(`[scan/image] OCR extracted ${ocrText.length} chars user=${userId}`);
+    // Log a preview so we can diagnose "image scan returned wrong URL" without
+    // re-running OCR. 240 chars covers a full URL bar + page title. Newlines
+    // collapsed so the line stays scannable in Railway logs.
+    const ocrPreview = ocrText.slice(0, 240).replace(/\s+/g, " ");
+    console.log(
+      `[scan/image] OCR ${ocrText.length} chars user=${userId} preview="${ocrPreview}"`,
+    );
 
     const extractedUrl = extractUrl(ocrText);
     if (extractedUrl) {

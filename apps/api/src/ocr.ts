@@ -52,11 +52,14 @@ export function extractUrl(text: string): string | null {
   const wwwMatch = text.match(/www\.[a-z0-9.-]+(?:\.[a-z]{2,})+(?:\/[^\s,]*)?/i);
   if (wwwMatch) return `https://${cleanTrailingPunctuation(wwwMatch[0])}`;
 
-  // Bare marketplace domains — the URL bar often shows just the host once the
-  // user has tapped the autocomplete suggestion. Listed in rough order of
-  // demo relevance (PH-first).
+  // Marketplace domains — the URL bar often shows just the host (no scheme,
+  // no www) once the user has tapped an autocomplete suggestion. Each branch
+  // captures the OPTIONAL trailing path so we keep /product/<shop>/<item>
+  // identifiers when present — without those, the marketplace-specific
+  // scrapers can only evaluate the domain and the verdict degrades to
+  // Not Enough Info. Listed in rough order of demo relevance (PH-first).
   const marketplaceMatch = text.match(
-    /\b(shopee\.ph|shopee\.com\.ph|lazada\.com\.ph|tiktok\.com\/@?[\w.-]+|facebook\.com\/marketplace\/item\/\d+|amazon\.com(?:\.[a-z]{2})?\/[^\s,]+)\b/i,
+    /\b((?:shopee\.(?:com\.)?ph|lazada\.com\.ph)(?:\/[^\s,]*)?|tiktok\.com\/@?[\w.-]+(?:\/[^\s,]*)?|facebook\.com\/marketplace\/item\/\d+|amazon\.com(?:\.[a-z]{2})?\/[^\s,]+)/i,
   );
   if (marketplaceMatch) return `https://${cleanTrailingPunctuation(marketplaceMatch[0])}`;
 
