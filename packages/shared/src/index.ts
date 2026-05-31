@@ -74,6 +74,11 @@ export interface NormalizedInput {
   marketplace: Marketplace;     // null when URL isn't on a known marketplace
   shop_id: string | null;       // marketplace-specific seller/shop identifier
   item_id: string | null;       // marketplace-specific product/listing identifier
+  // Human-readable seller handle when the URL exposes one. Used by Reddit /
+  // news scrapers to do meaningful text searches — searching for a numeric
+  // shop_id returns garbage, but "Dreame Official Store" or "@oxgn_official"
+  // surfaces real seller-specific posts. Null when not derivable from the URL.
+  seller_handle?: string | null;
 }
 
 export interface ScrapeJob {
@@ -86,6 +91,10 @@ export interface ScrapeJob {
   marketplace: Marketplace;
   shop_id: string | null;
   item_id: string | null;
+  // Human-readable seller handle (Shopee URL slug, TikTok/IG @handle, FB page
+  // name) — used by Reddit scraper for seller-specific text search instead of
+  // skipping marketplaces with numeric-only shop IDs. Null when not derivable.
+  seller_handle?: string | null;
   // Legacy optional fields kept for backward compatibility with scrapers that
   // already accept enriched context (e.g. price-sanity using `product`).
   seller?: string;

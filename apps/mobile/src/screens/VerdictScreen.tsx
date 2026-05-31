@@ -131,15 +131,21 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Verdict card */}
         <View style={[styles.card, { borderColor: accentContainer }]}>
-          {/* Hero: product photo (og:image / Shopee API). Falls back to favicon
-              → letter tile inside ScanThumbnail if we couldn't resolve one. */}
-          <View style={styles.heroWrap}>
-            <ScanThumbnail
-              thumbnailUrl={result.thumbnail_url}
-              url={heroUrl}
-              size={120}
-            />
-          </View>
+          {/* Hero: product photo (JSON-LD / og:image / Shopee API). Only render
+              when we actually got a product image — at 120px a cropped favicon
+              (e.g. the FB Marketplace pre-check) looks broken, and the verdict
+              badge is sufficient identity for those cases. The row-sized
+              ScanThumbnail in History still uses the full fallback chain
+              because at 48px favicons look fine. */}
+          {result.thumbnail_url && (
+            <View style={styles.heroWrap}>
+              <ScanThumbnail
+                thumbnailUrl={result.thumbnail_url}
+                url={heroUrl}
+                size={120}
+              />
+            </View>
+          )}
 
           <VerdictBadge verdict={verdict} />
 

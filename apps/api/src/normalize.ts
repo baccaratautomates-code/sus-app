@@ -49,27 +49,37 @@ function parseShopeePh(url: URL, domain: string): NormalizedInput | null {
 
   const path = url.pathname;
 
-  // Product listing: /...-i.<shop_id>.<item_id>
-  const listingMatch = path.match(/-i\.(\d+)\.(\d+)\/?$/i);
+  // Product listing: /<slug>-i.<shop_id>.<item_id>
+  // The slug often contains the seller's display name ("dreame-official-store"),
+  // sometimes the product name ("cheap-puma-shoes"). We capture it as best-effort
+  // seller_handle for Reddit search — false positives are filtered downstream
+  // by requiring scam-flag terms to co-occur.
+  const listingMatch = path.match(/^\/(.+?)-i\.(\d+)\.(\d+)\/?$/i);
   if (listingMatch) {
+    const slug = listingMatch[1];
     return {
       url: url.toString(),
       domain,
       marketplace: "shopee-ph",
-      shop_id: listingMatch[1],
-      item_id: listingMatch[2],
+      shop_id: listingMatch[2],
+      item_id: listingMatch[3],
+      seller_handle: slugToHandle(slug),
     };
   }
 
   // Product listing (older form): /product/<shop_id>/<item_id>
+  // No slug here, so we look at the ?seoName= query param as a last-resort
+  // source of human-readable text. URL-decoded, with %20 → space.
   const altListing = path.match(/^\/product\/(\d+)\/(\d+)\/?$/i);
   if (altListing) {
+    const seoName = url.searchParams.get("seoName");
     return {
       url: url.toString(),
       domain,
       marketplace: "shopee-ph",
       shop_id: altListing[1],
       item_id: altListing[2],
+      seller_handle: seoName ? slugToHandle(seoName) : null,
     };
   }
 
@@ -85,6 +95,19 @@ function parseShopeePh(url: URL, domain: string): NormalizedInput | null {
     };
   }
 
+  // Vanity shop URL: /<seller_username> (single-segment path, not "shop"/"product")
+  const vanityMatch = path.match(/^\/([A-Za-z0-9_.-]+)\/?$/);
+  if (vanityMatch && !["shop", "product", "mall", "search"].includes(vanityMatch[1].toLowerCase())) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "shopee-ph",
+      shop_id: null,
+      item_id: null,
+      seller_handle: slugToHandle(vanityMatch[1]),
+    };
+  }
+
   // Marketplace URL but unknown sub-path — treat as Shopee with no shop_id.
   // Synthesis can still note this is a Shopee URL.
   return {
@@ -94,6 +117,18 @@ function parseShopeePh(url: URL, domain: string): NormalizedInput | null {
     shop_id: null,
     item_id: null,
   };
+}
+
+// Converts a URL slug ("dreame-official-store" or "Dreame%20Official%20Store")
+// into a search-friendly string ("dreame official store"). Lowercases for
+// match consistency. URL-decodes and replaces hyphens/underscores with spaces.
+function slugToHandle(slug: string): string {
+  try {
+    const decoded = decodeURIComponent(slug);
+    return decoded.replace(/[-_]+/g, " ").trim().toLowerCase();
+  } catch {
+    return slug.replace(/[-_]+/g, " ").trim().toLowerCase();
+  }
 }
 
 // Lazada PH URL patterns:
@@ -163,6 +198,7 @@ function parseTiktokShop(url: URL, domain: string): NormalizedInput | null {
       marketplace: "tiktok-shop",
       shop_id: usernameVideo[1],
       item_id: usernameVideo[2] ?? null,
+      seller_handle: usernameVideo[1],
     };
   }
 
@@ -240,12 +276,15 @@ function parseFacebook(url: URL, domain: string): NormalizedInput | null {
   // Page or numeric id at the root (handle)
   const handleMatch = path.match(/^\/([A-Za-z0-9\.\-_]+)\/?$/);
   if (handleMatch) {
+    const handle = handleMatch[1];
     return {
       url: url.toString(),
       domain,
       marketplace: "facebook",
-      shop_id: handleMatch[1],
+      shop_id: handle,
       item_id: null,
+      // Numeric "handles" are just profile IDs, not useful for text search.
+      seller_handle: /^\d+$/.test(handle) ? null : handle,
     };
   }
 
@@ -289,6 +328,7 @@ function parseInstagram(url: URL, domain: string): NormalizedInput | null {
       marketplace: "instagram",
       shop_id: profileMatch[1],
       item_id: null,
+      seller_handle: profileMatch[1],
     };
   }
 

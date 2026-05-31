@@ -1,8 +1,19 @@
 import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
 import { emptyResult, extractDomain, fetchWithTimeout } from "./_lib";
 
-const SUBREDDITS = ["scams", "Flipping", "philippines"] as const;
-const FLAG_TERMS = /(scam|fake|fraud|legit)/i;
+// PH-focused subreddits where scam reports actually surface, plus the global
+// scam communities. r/PhilippinesScams + r/ShopeeOL are the highest-signal
+// for Sus's primary use case (Shopee/Lazada sellers) since they're populated
+// by Filipino shoppers comparing notes on specific stores.
+const SUBREDDITS = [
+  "PhilippinesScams",
+  "ShopeeOL",
+  "buhaydigital",
+  "philippines",
+  "scams",
+  "Flipping",
+] as const;
+const FLAG_TERMS = /(scam|fake|fraud|legit|sketchy|sketch|warning)/i;
 const USER_AGENT = "sus-app/0.1 (https://github.com/disruptorsmedia/sus)";
 const MAX_FLAGGED_POSTS = 5;
 
@@ -79,12 +90,15 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
   const allPosts = perSubreddit.flat().map((c) => c.data).filter((p): p is RedditPost => !!p);
 
   // Reddit's full-text search returns posts that contain the query string anywhere,
-  // including unrelated documentation placeholders (e.g. "see example.com for details").
-  // Require the search term to actually appear in the post body/title before treating
-  // it as evidence about this seller.
-  const termRe = new RegExp(`\\b${escapeRegex(searchTerm)}\\b`, "i");
+  // including unrelated documentation placeholders ("see example.com for details").
+  // Require the search term's distinctive words to actually appear in the post body
+  // or title before treating it as evidence about this seller. Multi-word handles
+  // ("dreame official store") match posts that say "Dreame" or "Dreame PH" too —
+  // we AND on words ≥3 chars, ignoring order, so reasonable variants still match
+  // but unrelated docs that just happen to contain "store" don't pass.
+  const matcher = buildMatcher(searchTerm);
   const aboutSeller = allPosts.filter((p) =>
-    termRe.test(`${p.title ?? ""} ${p.selftext ?? ""}`),
+    matcher(`${p.title ?? ""} ${p.selftext ?? ""}`),
   );
   const flagged = aboutSeller.filter((p) =>
     FLAG_TERMS.test(`${p.title ?? ""} ${p.selftext ?? ""}`),
@@ -134,33 +148,29 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
 }
 
 // Decides what to actually search Reddit for. Returns null when Reddit search
-// would be noise — e.g. a marketplace listing with a numeric-only seller ID.
+// would be noise — e.g. a marketplace listing with a numeric-only seller ID
+// and no other handle.
 function pickSearchTerm(data: ScrapeJob, domain: string): string | null {
-  // Marketplaces where shop_id is a human-readable handle (TikTok @username,
-  // Facebook page handle, Instagram @username) — search for that, not the domain.
-  if (data.marketplace === "tiktok-shop" && data.shop_id) {
-    // Username-style; people in posts often write it as "@username"
-    return `@${data.shop_id}`;
-  }
-  if (data.marketplace === "instagram" && data.shop_id) {
-    return `@${data.shop_id}`;
-  }
-  if (data.marketplace === "facebook" && data.shop_id && !/^\d+$/.test(data.shop_id)) {
-    // FB page handle — but only if it's not a numeric id (numeric IDs aren't
-    // searchable in the same way real names are).
-    return data.shop_id;
+  // Best case: a human-readable seller handle was extracted during URL
+  // normalization (Shopee slug, TikTok/IG @handle, FB page name). Use that
+  // because it actually surfaces seller-specific posts on Reddit.
+  if (data.seller_handle && data.seller_handle.trim().length >= 3) {
+    // Strip leading "@" if present — Reddit's search treats @ as a separator
+    // and "@oxgn_official" matches fewer posts than "oxgn_official".
+    return data.seller_handle.replace(/^@/, "").trim();
   }
 
-  // Marketplaces where the only identifier is a numeric ID (Shopee shop_id,
-  // Lazada item_id, Temu goods_id, FB profile.php numeric id, FB marketplace
-  // item_id) — Reddit chatter about the marketplace itself is not relevant
-  // to this specific seller. Skip Reddit.
+  // Marketplaces where the only identifier is a numeric ID (Shopee shop_id
+  // with no SEO slug, Lazada item_id, Temu goods_id, FB profile.php numeric
+  // id, FB marketplace item_id) — Reddit chatter about the marketplace itself
+  // is not relevant to this specific seller. Skip Reddit.
   if (
     data.marketplace === "shopee-ph" ||
     data.marketplace === "lazada-ph" ||
     data.marketplace === "temu" ||
-    (data.marketplace === "facebook" && (!data.shop_id || /^\d+$/.test(data.shop_id))) ||
-    (data.marketplace === "instagram" && !data.shop_id)
+    data.marketplace === "facebook" ||
+    data.marketplace === "instagram" ||
+    data.marketplace === "tiktok-shop"
   ) {
     return null;
   }
@@ -170,8 +180,22 @@ function pickSearchTerm(data: ScrapeJob, domain: string): string | null {
   return domain;
 }
 
-function escapeRegex(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+// Splits the search term into distinctive words and returns a matcher that
+// accepts text containing ALL of them (in any order, case-insensitive).
+// Words shorter than 3 chars are dropped — they're either filler ("of", "to")
+// or too generic to be evidence. If nothing meaningful remains, returns a
+// matcher that rejects everything — better to drop the source than feed noise
+// to synthesis.
+function buildMatcher(searchTerm: string): (text: string) => boolean {
+  const words = searchTerm
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3);
+  if (words.length === 0) return () => false;
+  return (text: string) => {
+    const lower = text.toLowerCase();
+    return words.every((w) => lower.includes(w));
+  };
 }
 
 async function searchSubreddit(sub: string, query: string): Promise<RedditChild[]> {

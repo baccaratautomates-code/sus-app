@@ -76,6 +76,7 @@ export async function fanOutScrapers(
     marketplace: normalized?.marketplace ?? null,
     shop_id: normalized?.shop_id ?? null,
     item_id: normalized?.item_id ?? null,
+    seller_handle: normalized?.seller_handle ?? null,
   };
 
   const jobs = await Promise.all(
