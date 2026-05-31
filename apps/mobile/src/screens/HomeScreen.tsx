@@ -27,7 +27,6 @@ import {
   radius,
   spacing,
   typography,
-  verdictColor,
 } from "../theme";
 import type { ScreenProps } from "../navigation";
 
@@ -228,12 +227,6 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
           <View style={styles.recentList}>
             {recentScans.map((scan) => (
               <View key={scan.id} style={styles.recentRow}>
-                <View
-                  style={[
-                    styles.recentAccent,
-                    { backgroundColor: verdictColor(scan.verdict) },
-                  ]}
-                />
                 <View style={styles.recentBody}>
                   <Text style={styles.recentName} numberOfLines={1}>
                     {scan.product_name}
@@ -418,14 +411,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.surfaceContainerHighest,
-    paddingRight: spacing.md,
+    paddingHorizontal: spacing.md,
     overflow: "hidden",
     gap: spacing.sm,
     ...elevation.card,
-  },
-  recentAccent: {
-    width: 4,
-    alignSelf: "stretch",
   },
   recentBody: {
     flex: 1,

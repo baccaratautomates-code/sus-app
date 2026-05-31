@@ -20,7 +20,6 @@ import {
   radius,
   spacing,
   typography,
-  verdictColor,
 } from "../theme";
 import type { ScreenProps } from "../navigation";
 
@@ -107,12 +106,6 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
                 { opacity: pressed ? 0.85 : 1 },
               ]}
             >
-              <View
-                style={[
-                  styles.accent,
-                  { backgroundColor: verdictColor(item.verdict) },
-                ]}
-              />
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
                   {item.product_name}
@@ -187,12 +180,11 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.surfaceContainerHighest,
-    paddingRight: spacing.md,
+    paddingHorizontal: spacing.md,
     overflow: "hidden",
     gap: spacing.sm,
     ...elevation.card,
   },
-  accent: { width: 4, alignSelf: "stretch" },
   rowBody: { flex: 1, paddingVertical: spacing.md, gap: 2 },
   rowTitle: {
     ...typography.bodyMd,
