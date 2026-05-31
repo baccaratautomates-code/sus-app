@@ -9,6 +9,7 @@ export type RootStackParamList = {
   History: undefined;
   Watch: undefined;
   Settings: undefined;
+  Farewell: undefined;
   // Loading runs the scan; either kind triggers the same UI but the network
   // call branches: "url" → POST /scan, "image" → POST /scan/image with base64.
   Loading:

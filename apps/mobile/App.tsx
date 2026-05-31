@@ -14,6 +14,7 @@ import { useEffect } from "react";
 import { View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import AuthScreen from "./src/screens/AuthScreen";
+import FarewellScreen from "./src/screens/FarewellScreen";
 import HistoryScreen from "./src/screens/HistoryScreen";
 import HomeScreen from "./src/screens/HomeScreen";
 import LoadingScreen from "./src/screens/LoadingScreen";
@@ -142,6 +143,11 @@ function Root() {
               name="Settings"
               component={SettingsScreen}
               options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Farewell"
+              component={FarewellScreen}
+              options={{ headerShown: false, gestureEnabled: false }}
             />
             <Stack.Screen
               name="Loading"

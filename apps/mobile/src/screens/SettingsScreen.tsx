@@ -20,7 +20,7 @@ import {
 import type { ScreenProps } from "../navigation";
 
 export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
-  const { user, signOut, signOutLocal } = useAuth();
+  const { user, signOut } = useAuth();
   const { isPro } = usePro();
   // Only Delete account needs a confirmation modal — sign out is reversible
   // (just sign back in) and doesn't deserve a friction step.
@@ -43,12 +43,12 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
       Alert.alert("Couldn't delete account", (err as Error).message);
       return;
     }
-    // API succeeded — server-side auth.users is already gone. Use local-scope
-    // signOut: a regular global signOut would call /auth/v1/logout with a JWT
-    // bound to a now-deleted user, returning 401 and sometimes leaving the
-    // local session stuck. Local clears the on-device JWT only, which is
-    // correct here since there's nothing left to revoke server-side.
-    await signOutLocal();
+    // Server-side auth.users is gone; the local Supabase JWT in storage is
+    // still here. We deliberately do NOT signOut yet — that would null the
+    // session and Root would auto-render the Auth screen, skipping the
+    // farewell moment. Instead navigate to Farewell, which calls
+    // signOutLocal() itself when the user taps "Sign back in".
+    navigation.replace("Farewell");
   };
 
   const appVersion =
