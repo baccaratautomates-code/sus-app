@@ -19,14 +19,12 @@ import {
 } from "../theme";
 import type { ScreenProps } from "../navigation";
 
-type PendingAction = "signout" | "delete" | null;
-
 export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   const { user, signOut } = useAuth();
   const { isPro } = usePro();
-  // Which confirmation is being shown, if any. Null = no modal. Each action
-  // path resets to null on confirm or cancel so the modal closes.
-  const [pending, setPending] = useState<PendingAction>(null);
+  // Only Delete account needs a confirmation modal — sign out is reversible
+  // (just sign back in) and doesn't deserve a friction step.
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Pretty name: prefer the Google profile name, then fall back to the part of
   // the email before "@" so email-only users see something friendlier than the
@@ -37,24 +35,15 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
     user?.email?.split("@")[0] ??
     "Account";
 
-  // Both destructive actions pop the same in-app ConfirmModal — same styling,
-  // same backdrop-to-cancel behavior. Logic for each lives in onConfirm below.
-  const onConfirm = async () => {
-    if (pending === "signout") {
-      setPending(null);
+  const onConfirmDelete = async () => {
+    setDeleteOpen(false);
+    try {
+      await deleteAccount();
+      // signOut clears the now-orphaned local session token. Root sees no
+      // session and renders Auth, completing the deletion flow.
       await signOut();
-      return;
-    }
-    if (pending === "delete") {
-      setPending(null);
-      try {
-        await deleteAccount();
-        // signOut clears the now-orphaned local session token. Root sees no
-        // session and renders Auth, completing the deletion flow.
-        await signOut();
-      } catch (err) {
-        Alert.alert("Couldn't delete account", (err as Error).message);
-      }
+    } catch (err) {
+      Alert.alert("Couldn't delete account", (err as Error).message);
     }
   };
 
@@ -105,7 +94,7 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
           <Row
             icon="delete-outline"
             label="Delete account"
-            onPress={() => setPending("delete")}
+            onPress={() => setDeleteOpen(true)}
             destructive
           />
         </View>
@@ -132,7 +121,7 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
         </View>
 
         <Pressable
-          onPress={() => setPending("signout")}
+          onPress={() => signOut()}
           style={({ pressed }) => [
             styles.signOutBtn,
             { opacity: pressed ? 0.85 : 1 },
@@ -144,23 +133,13 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
       </ScrollView>
 
       <ConfirmModal
-        visible={pending === "signout"}
-        title="Sign out"
-        message="You'll need to sign in again to access your scans."
-        confirmLabel="Sign out"
-        destructive
-        onConfirm={onConfirm}
-        onCancel={() => setPending(null)}
-      />
-
-      <ConfirmModal
-        visible={pending === "delete"}
+        visible={deleteOpen}
         title="Delete account?"
         message="This permanently deletes your account, all scan history, and any saved data. This cannot be undone."
         confirmLabel="Delete forever"
         destructive
-        onConfirm={onConfirm}
-        onCancel={() => setPending(null)}
+        onConfirm={onConfirmDelete}
+        onCancel={() => setDeleteOpen(false)}
       />
 
       <BottomNav active="settings" />
