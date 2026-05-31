@@ -80,6 +80,23 @@ export const mockState = {
   recentScans: [] as RecentScan[],
 };
 
+// DELETE /me/account — wipes the user's scans, profile row, and auth.users
+// record so the same Google sign-in creates a fresh UUID next time. Throws
+// on any non-2xx so the Settings screen can surface a useful error. Caller
+// must signOut() after this resolves to clear the now-orphaned local session.
+export async function deleteAccount(): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Not signed in");
+  const res = await fetch(
+    `${API_BASE}/me/account?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Server returned ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
 // GET /me/quota — refreshes mockState.scansLeft + isPro from the server.
 // Returns the same shape it writes to mockState so callers can read it
 // synchronously without re-importing mockState. Silently no-ops on any

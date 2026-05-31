@@ -5,8 +5,10 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { UserAvatar } from "../components/UserAvatar";
+import { confirm } from "../confirm";
 import { useAuth } from "../context/AuthContext";
 import { usePro } from "../context/ProContext";
+import { deleteAccount } from "../store";
 import {
   colors,
   elevation,
@@ -29,19 +31,38 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
     user?.email?.split("@")[0] ??
     "Account";
 
-  const onSignOut = () => {
-    Alert.alert("Sign out", "Are you sure you want to sign out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Sign out",
-        style: "destructive",
-        onPress: async () => {
-          await signOut();
-          // AuthProvider's onAuthStateChange clears the session, Root re-
-          // renders the Auth stack automatically. No imperative nav needed.
-        },
-      },
-    ]);
+  const onSignOut = async () => {
+    const ok = await confirm({
+      title: "Sign out",
+      message: "Are you sure you want to sign out?",
+      confirmLabel: "Sign out",
+      destructive: true,
+    });
+    if (ok) await signOut();
+    // AuthProvider's onAuthStateChange clears the session, Root re-renders
+    // the Auth stack automatically. No imperative nav needed.
+  };
+
+  // Hard-delete the account: wipes scan history, public.users row, and the
+  // auth.users record. After this the same Google sign-in starts fresh with
+  // a brand-new UUID. Confirmation is mandatory because there is no undo.
+  const onDeleteAccount = async () => {
+    const ok = await confirm({
+      title: "Delete account",
+      message:
+        "This permanently deletes your account, all scan history, and any saved data. This cannot be undone.",
+      confirmLabel: "Delete forever",
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteAccount();
+      // signOut clears the now-orphaned local session token. Root sees no
+      // session and renders Auth, completing the deletion flow.
+      await signOut();
+    } catch (err) {
+      Alert.alert("Couldn't delete account", (err as Error).message);
+    }
   };
 
   const appVersion =
@@ -120,6 +141,16 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
         >
           <MaterialIcons name="logout" size={20} color={colors.highRisk} />
           <Text style={styles.signOutLabel}>Sign out</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onDeleteAccount}
+          style={({ pressed }) => [
+            styles.deleteBtn,
+            { opacity: pressed ? 0.85 : 1 },
+          ]}
+        >
+          <Text style={styles.deleteLabel}>Delete account</Text>
         </Pressable>
       </ScrollView>
 
@@ -262,5 +293,17 @@ const styles = StyleSheet.create({
     color: colors.highRisk,
     fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
+  },
+  deleteBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.md,
+    marginTop: spacing.sm,
+  },
+  deleteLabel: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+    fontWeight: "500", fontFamily: "Inter_500Medium",
+    textDecorationLine: "underline",
   },
 });

@@ -96,6 +96,34 @@ app.get("/me/quota", async (c) => {
   }
 });
 
+// Delete the user's account entirely — scans, public.users row, and
+// auth.users row. After this returns, the same Google sign-in creates a
+// brand-new UUID with zero history. Mobile calls this then signOut()s to
+// invalidate the local session.
+//
+// Order matters less than you'd think: deleting public.users cascades to
+// public.scans via FK ON DELETE CASCADE, and deleting auth.users cascades
+// to auth.identities/auth.sessions/auth.refresh_tokens via Supabase's own
+// FKs. We do public first so the app-side data is gone even if auth
+// deletion fails (e.g. Supabase Postgres role restrictions).
+app.delete("/me/account", async (c) => {
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+
+  try {
+    // public.users + cascading public.scans
+    await sql`DELETE FROM users WHERE id = ${userId}`;
+    // auth.users + cascading auth.identities / auth.sessions / auth.refresh_tokens.
+    // auth.users.id is uuid; our user_id is the text form of the same uuid.
+    await sql`DELETE FROM auth.users WHERE id = ${userId}::uuid`;
+    console.log(`[me/account] deleted user=${userId}`);
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error(`[me/account] delete failed user=${userId}: ${(err as Error).message}`);
+    return c.json({ error: "failed to delete account" }, 500);
+  }
+});
+
 app.post("/scan", async (c) => {
   let body: unknown;
   try {
