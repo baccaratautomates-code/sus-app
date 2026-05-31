@@ -36,7 +36,11 @@ app.use(
   "*",
   cors({
     origin: "*",
-    allowMethods: ["GET", "POST", "OPTIONS"],
+    // DELETE is needed for /me/account and /me/watches/:id. Without it in the
+    // allowlist, browsers see the CORS preflight reject DELETE and silently
+    // block the actual request — manifests as "nothing happens" on the
+    // Delete account button and the Stop watching button.
+    allowMethods: ["GET", "POST", "DELETE", "OPTIONS"],
     allowHeaders: ["Content-Type"],
   }),
 );
