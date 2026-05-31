@@ -17,9 +17,12 @@ interface Props {
   // derive the letter for the final fallback. May not be a real URL for
   // image scans without an extracted listing URL.
   url: string;
+  // Edge length in px. Defaults to 48 (row size); pass larger values for
+  // the Verdict hero (~120).
+  size?: number;
 }
 
-const SIZE = 48;
+const DEFAULT_SIZE = 48;
 
 function getHost(url: string): string | null {
   try {
@@ -36,7 +39,7 @@ function getLetter(label: string): string {
   return ch.toUpperCase();
 }
 
-export function ScanThumbnail({ thumbnailUrl, url }: Props) {
+export function ScanThumbnail({ thumbnailUrl, url, size = DEFAULT_SIZE }: Props) {
   const host = useMemo(() => getHost(url), [url]);
 
   // step is set ONCE at mount based on the inputs (then advanced only by
@@ -48,9 +51,19 @@ export function ScanThumbnail({ thumbnailUrl, url }: Props) {
     return "letter";
   });
 
+  // Scale auxiliary dimensions (favicon inner image, letter font) with the
+  // overall tile so a 120px hero doesn't have a stamp-sized favicon in it.
+  const wrapStyle = {
+    width: size,
+    height: size,
+    borderRadius: size >= 96 ? radius.md : radius.default,
+  };
+  const faviconSize = Math.round(size * 0.58);
+  const letterFontSize = Math.round(size * 0.42);
+
   if (step === "og" && thumbnailUrl) {
     return (
-      <View style={styles.wrap}>
+      <View style={[styles.wrap, wrapStyle]}>
         <Image
           source={{ uri: thumbnailUrl }}
           style={styles.image}
@@ -64,12 +77,14 @@ export function ScanThumbnail({ thumbnailUrl, url }: Props) {
   if (step === "favicon" && host) {
     // Google S2 service — always returns SOMETHING (a default icon if the
     // host has no favicon), so onError is rare. Free, no key required, CDN-cached.
-    const faviconUri = `https://www.google.com/s2/favicons?domain=${host}&sz=64`;
+    // Request 2x the rendered size so hero tiles aren't blurry.
+    const sz = Math.max(32, Math.min(128, faviconSize * 2));
+    const faviconUri = `https://www.google.com/s2/favicons?domain=${host}&sz=${sz}`;
     return (
-      <View style={[styles.wrap, styles.centered]}>
+      <View style={[styles.wrap, wrapStyle, styles.centered]}>
         <Image
           source={{ uri: faviconUri }}
-          style={styles.favicon}
+          style={{ width: faviconSize, height: faviconSize }}
           resizeMode="contain"
           onError={() => setStep("letter")}
         />
@@ -78,30 +93,27 @@ export function ScanThumbnail({ thumbnailUrl, url }: Props) {
   }
 
   return (
-    <View style={[styles.wrap, styles.letterTile]}>
-      <Text style={styles.letterText}>{getLetter(url)}</Text>
+    <View style={[styles.wrap, wrapStyle, styles.letterTile]}>
+      <Text style={[styles.letterText, { fontSize: letterFontSize }]}>
+        {getLetter(url)}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   wrap: {
-    width: SIZE,
-    height: SIZE,
-    borderRadius: radius.default,
     overflow: "hidden",
     backgroundColor: colors.surfaceContainerHigh,
   },
   image: { width: "100%", height: "100%" },
   centered: { alignItems: "center", justifyContent: "center" },
-  favicon: { width: 28, height: 28 },
   letterTile: {
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primaryFixed,
   },
   letterText: {
-    fontSize: 20,
     fontWeight: "700",
     fontFamily: "Inter_700Bold",
     color: colors.primary,

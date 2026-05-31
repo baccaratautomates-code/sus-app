@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { Confidence, Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
 import { fetchQuota, mockState } from "../store";
@@ -108,6 +109,12 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
 
   const confLvl = confidenceLevel(result.confidence ?? "Low");
 
+  // Hero thumbnail data. Only URL scans carry a source URL on the response;
+  // image scans without a follow-up URL fall back to the letter tile inside
+  // ScanThumbnail.
+  const heroUrl =
+    result.input?.kind === "url" ? (result.input.url ?? "") : "";
+
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
@@ -124,6 +131,16 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Verdict card */}
         <View style={[styles.card, { borderColor: accentContainer }]}>
+          {/* Hero: product photo (og:image / Shopee API). Falls back to favicon
+              → letter tile inside ScanThumbnail if we couldn't resolve one. */}
+          <View style={styles.heroWrap}>
+            <ScanThumbnail
+              thumbnailUrl={result.thumbnail_url}
+              url={heroUrl}
+              size={120}
+            />
+          </View>
+
           <VerdictBadge verdict={verdict} />
 
           <View style={styles.scoreRow}>
@@ -334,6 +351,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     ...elevation.card,
+  },
+  heroWrap: {
+    marginBottom: spacing.md,
   },
   scoreRow: {
     flexDirection: "row",

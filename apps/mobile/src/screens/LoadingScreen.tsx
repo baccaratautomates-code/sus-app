@@ -3,11 +3,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+
+// react-native-web doesn't ship a native animated module, so useNativeDriver:true
+// throws a noisy console warning. The animation still plays — just on the JS
+// thread — but we'd rather not pollute the dev console. Gate per-platform.
+const USE_NATIVE_DRIVER = Platform.OS !== "web";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandMark } from "../components/BrandMark";
 import { QuotaExceededError, requestImageScan, requestScan } from "../store";
@@ -112,7 +118,7 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
         toValue: 1,
         duration: 1400,
         easing: Easing.inOut(Easing.ease),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
     );
     const pulseAnim = Animated.loop(
@@ -120,7 +126,7 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
         toValue: 1,
         duration: 2400,
         easing: Easing.inOut(Easing.ease),
-        useNativeDriver: true,
+        useNativeDriver: USE_NATIVE_DRIVER,
       }),
     );
     slideAnim.start();

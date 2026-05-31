@@ -43,6 +43,12 @@ export interface ScanResponse {
   sources: Source[];
   scanned_at: string;
   input: ScanRequest;
+  // Product photo URL captured at scan time (og:image, Shopee API, etc.).
+  // Null when no thumbnail could be resolved — UI falls back to favicon
+  // → letter tile. Lives on the response so the Verdict screen can render
+  // it without an extra round-trip; also persisted in its own column for
+  // History row queries.
+  thumbnail_url?: string | null;
 }
 
 // Marketplace identifier — PRD §3.1 calls this out as one of the four fields

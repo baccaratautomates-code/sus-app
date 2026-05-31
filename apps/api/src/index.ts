@@ -157,6 +157,10 @@ app.post("/scan", async (c) => {
     const unsupported = detectUnsupportedMarketplace(parsed.value.url);
     if (unsupported) {
       console.log(`[scan] ${parsed.value.url} → ${unsupported} not supported — tailored Not Enough Info`);
+      // FB Marketplace listings often have a usable og:image (the listing
+      // photo) even though we can't gather signals about the seller — grab it
+      // so both the Verdict screen and History row get a thumbnail.
+      const thumbnailUrl = await fetchThumbnail(parsed.value.url);
       const response: ScanResponse = {
         trust_score: 0,
         verdict: "Not Enough Info",
@@ -167,11 +171,8 @@ app.post("/scan", async (c) => {
         sources: [],
         scanned_at: new Date().toISOString(),
         input: parsed.value,
+        thumbnail_url: thumbnailUrl,
       };
-      // FB Marketplace listings often have a usable og:image (the listing
-      // photo) even though we can't gather signals about the seller — grab it
-      // so the History row gets a thumbnail instead of a bare URL.
-      const thumbnailUrl = await fetchThumbnail(parsed.value.url);
       await persistScan(parsed.value, parsed.value.url, response, thumbnailUrl);
       return c.json({ ...response, is_pro: false });
     }
@@ -279,6 +280,11 @@ app.post("/scan/image", async (c) => {
       if (unsupported) {
         console.log(`[scan/image] extracted ${extractedUrl} but ${unsupported} not supported — returning tailored Not Enough Info`);
         const req = { kind: "image" as const, image_id: "uploaded", user_id: userId };
+        // Persist with the extracted URL as the History label so the row
+        // shows what the user actually scanned (FB Marketplace listing URL),
+        // not the opaque "image:uploaded" cache target. Also grab og:image
+        // so the Verdict + History rows get a thumbnail.
+        const thumbnailUrl = await fetchThumbnail(extractedUrl);
         const response: ScanResponse = {
           trust_score: 0,
           verdict: "Not Enough Info",
@@ -289,12 +295,8 @@ app.post("/scan/image", async (c) => {
           sources: [],
           scanned_at: new Date().toISOString(),
           input: req,
+          thumbnail_url: thumbnailUrl,
         };
-        // Persist with the extracted URL as the History label so the row
-        // shows what the user actually scanned (FB Marketplace listing URL),
-        // not the opaque "image:uploaded" cache target. Also grab og:image
-        // so the History row gets a thumbnail.
-        const thumbnailUrl = await fetchThumbnail(extractedUrl);
         await persistScan(req, extractedUrl, response, thumbnailUrl);
         return c.json({ ...response, is_pro: quotaIsPro });
       }

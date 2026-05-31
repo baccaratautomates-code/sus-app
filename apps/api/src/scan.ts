@@ -98,8 +98,16 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const cached = await getCachedVerdict(cacheKey);
   if (cached) {
     console.log(`[scan] cache HIT key=${cacheKey} verdict="${cached.verdict}" — skipping fan-out`);
-    await persistScan(req, target, cached, await thumbnailPromise);
-    return cached;
+    const thumbnailUrl = await thumbnailPromise;
+    // Re-attach the thumbnail to the response we return. Prefer the freshly-fetched
+    // value (in case the product image was updated or we couldn't get one when the
+    // entry was first cached); fall back to whatever was cached.
+    const enriched: ScanResponse = {
+      ...cached,
+      thumbnail_url: thumbnailUrl ?? cached.thumbnail_url ?? null,
+    };
+    await persistScan(req, target, enriched, enriched.thumbnail_url ?? null);
+    return enriched;
   }
   console.log(`[scan] cache MISS key=${cacheKey} — proceeding to fan-out`);
 
@@ -112,9 +120,10 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   const { signals, sources } = flattenSignals(results);
   const distinctSourceUrls = new Set(sources.map((s) => s.url)).size;
   if (distinctSourceUrls < MIN_SOURCE_COVERAGE) {
-    const response = notEnoughInfo(req, sources);
+    const thumbnailUrl = await thumbnailPromise;
+    const response: ScanResponse = { ...notEnoughInfo(req, sources), thumbnail_url: thumbnailUrl };
     await setCachedVerdict(cacheKey, response);
-    await persistScan(req, target, response, await thumbnailPromise);
+    await persistScan(req, target, response, thumbnailUrl);
     return response;
   }
 
@@ -128,6 +137,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       `[scan] structural-risk-only signals — downgrading to Not Enough Info (PRD §5)`,
     );
     const caveat = signals.find((s) => STRUCTURAL_RISK_MARKER.test(s.detail))?.detail ?? "";
+    const thumbnailUrl = await thumbnailPromise;
     const response: ScanResponse = {
       trust_score: 0,
       verdict: "Not Enough Info",
@@ -138,9 +148,10 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       sources,
       scanned_at: new Date().toISOString(),
       input: req,
+      thumbnail_url: thumbnailUrl,
     };
     await setCachedVerdict(cacheKey, response);
-    await persistScan(req, target, response, await thumbnailPromise);
+    await persistScan(req, target, response, thumbnailUrl);
     return response;
   }
 
@@ -179,14 +190,16 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     // Sources stay — they show the user what we checked, even though we couldn't conclude.
   }
 
+  const thumbnailUrl = await thumbnailPromise;
   const response: ScanResponse = {
     ...synth,
     scanned_at: new Date().toISOString(),
     input: req,
+    thumbnail_url: thumbnailUrl,
   };
 
   await setCachedVerdict(cacheKey, response);
-  await persistScan(req, target, response, await thumbnailPromise);
+  await persistScan(req, target, response, thumbnailUrl);
   return response;
 }
 
