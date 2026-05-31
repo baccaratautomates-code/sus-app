@@ -164,9 +164,10 @@ async function scrapeOgImage(url: string): Promise<string | null> {
     const reader = res.body?.getReader();
     if (!reader) return null;
 
-    // Read chunks until we see </head> or hit MAX_BYTES. We stop early because
-    // og:image is always near the top of the document and reading the rest
-    // wastes bandwidth + time.
+    // Read chunks until we see </body> or hit MAX_BYTES. og:image always lives
+    // in <head> but Product JSON-LD sometimes lives in <body> just below the
+    // fold, so we read past </head> to catch both. The 512KB cap bounds us
+    // even on cooperative-but-huge pages.
     const chunks: Uint8Array[] = [];
     let total = 0;
     const decoder = new TextDecoder("utf-8", { fatal: false });
@@ -177,9 +178,24 @@ async function scrapeOgImage(url: string): Promise<string | null> {
       chunks.push(value);
       total += value.length;
       assembled += decoder.decode(value, { stream: true });
-      if (/<\/head>/i.test(assembled)) break;
+      if (/<\/body>/i.test(assembled)) break;
     }
     reader.cancel().catch(() => {});
+
+    // Prefer JSON-LD Product.image — that's the clean product shot the seller
+    // uploaded. og:image is often a social-card composite with price/rating
+    // overlay (especially on Shopee). Fall back to og:image only when JSON-LD
+    // is missing or the product image field isn't there.
+    const jsonLdImage = extractJsonLdProductImage(assembled);
+    if (jsonLdImage) {
+      try {
+        const absolute = new URL(jsonLdImage, res.url || url).toString();
+        console.log(`[thumbnail] ${url} → ${absolute} (json-ld)`);
+        return absolute;
+      } catch {
+        // malformed URL inside JSON-LD — drop through to og:image
+      }
+    }
 
     const ogImage = extractFirstMeta(assembled, META_NAMES);
     if (!ogImage) {
@@ -207,6 +223,61 @@ async function scrapeOgImage(url: string): Promise<string | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+// Pulls the first Product.image out of any <script type="application/ld+json">
+// block on the page. Shopee, Lazada, and most schema.org-compliant marketplaces
+// embed this — and the image field there is the clean product photo, NOT the
+// social-card composite that ends up in og:image. Returns the URL string, or
+// null if no Product JSON-LD block exists / parses.
+function extractJsonLdProductImage(html: string): string | null {
+  const blockRe = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(html)) !== null) {
+    const payload = m[1].trim();
+    if (!payload) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      continue; // malformed block — skip, try the next one
+    }
+    // Schema.org allows a single object, an array of objects, or @graph nesting.
+    const candidates: unknown[] = Array.isArray(parsed)
+      ? parsed
+      : isObject(parsed) && Array.isArray((parsed as Record<string, unknown>)["@graph"])
+        ? ((parsed as Record<string, unknown>)["@graph"] as unknown[])
+        : [parsed];
+
+    for (const node of candidates) {
+      if (!isObject(node)) continue;
+      const type = (node as Record<string, unknown>)["@type"];
+      const isProduct =
+        type === "Product" || (Array.isArray(type) && type.includes("Product"));
+      if (!isProduct) continue;
+      const image = (node as Record<string, unknown>).image;
+      if (typeof image === "string" && image) return image;
+      if (Array.isArray(image)) {
+        // Array entries can be strings OR ImageObject {url: "..."}.
+        for (const entry of image) {
+          if (typeof entry === "string" && entry) return entry;
+          if (isObject(entry)) {
+            const url = (entry as Record<string, unknown>).url;
+            if (typeof url === "string" && url) return url;
+          }
+        }
+      }
+      if (isObject(image)) {
+        const url = (image as Record<string, unknown>).url;
+        if (typeof url === "string" && url) return url;
+      }
+    }
+  }
+  return null;
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null;
 }
 
 // Tries each meta-name in order and returns the first content value found.
