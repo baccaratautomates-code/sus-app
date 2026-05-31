@@ -32,11 +32,17 @@ const TIMEOUT_MS = 2_500;
 // than that with no <head>, something is wrong and we'd rather bail than buffer.
 const MAX_BYTES = 512 * 1024;
 
-// Real-browser UA. Some marketplaces (Shopee in particular) return a stripped
-// HTML page or a 403 to non-browser User-Agents. The cost of pretending to be
-// Chrome here is zero; the cost of being honest is a missing thumbnail.
-const USER_AGENT =
+// Used for the Shopee item API — that endpoint expects a normal browser UA
+// + Referer + X-API-SOURCE to mimic the real PC web app's requests.
+const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+// Used for the generic og:image scrape. Marketplaces (Shopee in particular)
+// recognize known social-card crawlers and serve them a fully-rendered SSR
+// variant with og:image present — it's how iMessage / Slack / FB link previews
+// work without doing JS rendering. With a generic Chrome UA Shopee returns a
+// JS-only shell; with this UA they return the rich crawler variant.
+const CRAWLER_UA = "facebookexternalhit/1.1";
 
 // Try the best-quality preview meta tag, then fall back to Twitter's variant.
 // Some sites only set one. Order matters: og:image is the iMessage/Slack standard.
@@ -81,7 +87,7 @@ async function fetchShopeeThumbnail(
   try {
     const res = await fetch(apiUrl, {
       headers: {
-        "User-Agent": USER_AGENT,
+        "User-Agent": BROWSER_UA,
         Accept: "application/json",
         "X-API-SOURCE": "pc",
         "X-Requested-With": "XMLHttpRequest",
@@ -138,7 +144,7 @@ async function scrapeOgImage(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, {
       headers: {
-        "User-Agent": USER_AGENT,
+        "User-Agent": CRAWLER_UA,
         Accept: "text/html,application/xhtml+xml",
         "Accept-Language": "en-US,en;q=0.9",
       },
