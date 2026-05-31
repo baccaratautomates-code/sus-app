@@ -9,10 +9,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { LabeledInput } from "../components/LabeledInput";
 import { supabase } from "../supabase";
 import {
   colors,
@@ -146,39 +146,31 @@ export default function AuthScreen() {
             <View style={styles.dividerLine} />
           </View>
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Email</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="you@example.com"
-              placeholderTextColor={colors.textDim}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-              textContentType="emailAddress"
-              autoComplete="email"
-              value={email}
-              onChangeText={setEmail}
-            />
-          </View>
+          <LabeledInput
+            label="Email"
+            placeholder="you@example.com"
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="email-address"
+            textContentType="emailAddress"
+            autoComplete="email"
+            value={email}
+            onChangeText={setEmail}
+          />
 
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>Password</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={isSignUp ? "6+ characters" : "Your password"}
-              placeholderTextColor={colors.textDim}
-              autoCapitalize="none"
-              autoCorrect={false}
-              secureTextEntry
-              textContentType={isSignUp ? "newPassword" : "password"}
-              autoComplete={isSignUp ? "new-password" : "current-password"}
-              value={password}
-              onChangeText={setPassword}
-              onSubmitEditing={onSubmitEmail}
-              returnKeyType="go"
-            />
-          </View>
+          <LabeledInput
+            label="Password"
+            placeholder={isSignUp ? "6+ characters" : "Your password"}
+            autoCapitalize="none"
+            autoCorrect={false}
+            secureTextEntry
+            textContentType={isSignUp ? "newPassword" : "password"}
+            autoComplete={isSignUp ? "new-password" : "current-password"}
+            value={password}
+            onChangeText={setPassword}
+            onSubmitEditing={onSubmitEmail}
+            returnKeyType="go"
+          />
 
           {error && <Text style={styles.error}>{error}</Text>}
 
@@ -289,23 +281,6 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     letterSpacing: 1,
-  },
-  inputGroup: { gap: spacing.xs },
-  inputLabel: {
-    ...typography.labelMd,
-    color: colors.text,
-    fontWeight: "600", fontFamily: "Inter_600SemiBold",
-  },
-  input: {
-    backgroundColor: colors.surfaceContainerLow,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    color: colors.text,
-    fontSize: 16,
-    fontFamily: "Inter_400Regular",
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
   },
   error: {
     ...typography.caption,
