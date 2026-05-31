@@ -34,3 +34,30 @@ CREATE TABLE IF NOT EXISTS scans (
 -- Recent-scans queries are always user-scoped + time-ordered.
 CREATE INDEX IF NOT EXISTS scans_user_created_idx
   ON scans (user_id, created_at DESC);
+
+-- Row-Level Security (defense in depth). The Supabase anon key lives in the
+-- mobile JS bundle and is publicly readable; without these policies anyone
+-- could lift it and `supabase.from('scans').select()` to dump the table.
+--
+-- The API connects via DATABASE_URL with a postgres-role direct connection
+-- that BYPASSES RLS, so /scan, /me/scans, /me/quota keep working unchanged.
+-- These policies only gate queries that arrive through Supabase's REST API
+-- (PostgREST) carrying an end-user JWT.
+--
+-- INSERT/UPDATE/DELETE intentionally have no anon policy — only the API can
+-- mutate, because the API enforces business rules (a client-side UPDATE on
+-- users would let anyone set is_pro=true and skip the paywall).
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE scans ENABLE ROW LEVEL SECURITY;
+
+-- DROP+CREATE so re-running the bootstrap is idempotent (CREATE POLICY alone
+-- isn't — it errors if the policy already exists).
+DROP POLICY IF EXISTS users_select_own ON users;
+CREATE POLICY users_select_own ON users
+  FOR SELECT TO authenticated
+  USING (auth.uid()::text = id);
+
+DROP POLICY IF EXISTS scans_select_own ON scans;
+CREATE POLICY scans_select_own ON scans
+  FOR SELECT TO authenticated
+  USING (auth.uid()::text = user_id);
