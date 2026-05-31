@@ -16,6 +16,12 @@ interface AuthState {
   // on a blank screen during this so we don't flash Auth → Home unnecessarily.
   loading: boolean;
   signOut: () => Promise<void>;
+  // Local-scope sign-out for the post-deletion case. The server has already
+  // wiped auth.users, so a regular (global) signOut would try to revoke a
+  // JWT bound to a deleted user and 401 — sometimes silently leaving the
+  // local session intact. Local scope clears only the on-device JWT, which
+  // is exactly what we want after the user no longer exists server-side.
+  signOutLocal: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined);
@@ -48,6 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signOut: async () => {
         await supabase.auth.signOut();
+      },
+      signOutLocal: async () => {
+        // scope:'local' clears the on-device JWT without calling /auth/v1/logout
+        // on the server — appropriate when the server-side user has already
+        // been deleted (account deletion flow). Defensive: also explicitly
+        // nulls our local state in case onAuthStateChange doesn't fire.
+        await supabase.auth.signOut({ scope: "local" });
+        setSession(null);
       },
     }),
     [session, loading],

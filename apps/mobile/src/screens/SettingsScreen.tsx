@@ -20,7 +20,7 @@ import {
 import type { ScreenProps } from "../navigation";
 
 export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
-  const { user, signOut } = useAuth();
+  const { user, signOut, signOutLocal } = useAuth();
   const { isPro } = usePro();
   // Only Delete account needs a confirmation modal — sign out is reversible
   // (just sign back in) and doesn't deserve a friction step.
@@ -39,12 +39,16 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
     setDeleteOpen(false);
     try {
       await deleteAccount();
-      // signOut clears the now-orphaned local session token. Root sees no
-      // session and renders Auth, completing the deletion flow.
-      await signOut();
     } catch (err) {
       Alert.alert("Couldn't delete account", (err as Error).message);
+      return;
     }
+    // API succeeded — server-side auth.users is already gone. Use local-scope
+    // signOut: a regular global signOut would call /auth/v1/logout with a JWT
+    // bound to a now-deleted user, returning 401 and sometimes leaving the
+    // local session stuck. Local clears the on-device JWT only, which is
+    // correct here since there's nothing left to revoke server-side.
+    await signOutLocal();
   };
 
   const appVersion =
