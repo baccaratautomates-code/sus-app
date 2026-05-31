@@ -28,8 +28,17 @@ CREATE TABLE IF NOT EXISTS scans (
   -- Full ScanResponse object (verdict + summary + flags + sources + …).
   -- Kept as JSONB so we can extract fields later without schema migrations.
   response      JSONB NOT NULL,
+  -- og:image URL captured at scan time so History rows can render a thumbnail
+  -- of the actual product (every Shopee URL has the same favicon — a list of
+  -- identical orange bags doesn't help the user remember which scan was which).
+  -- Nullable: scrape can fail, page can lack og:image, or input may not be a URL.
+  -- Mobile falls back to favicon → letter tile when null.
+  thumbnail_url TEXT,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Idempotent column add for installs that predate thumbnail_url.
+ALTER TABLE scans ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
 
 -- Recent-scans queries are always user-scoped + time-ordered.
 CREATE INDEX IF NOT EXISTS scans_user_created_idx

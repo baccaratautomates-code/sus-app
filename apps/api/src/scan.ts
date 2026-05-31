@@ -11,6 +11,7 @@ import { sql } from "./db";
 import { normalizeInput } from "./normalize";
 import { fanOutScrapers } from "./queue";
 import { flattenSignals, synthesizeVerdict } from "./synthesis";
+import { fetchThumbnail } from "./thumbnail";
 
 const SCRAPER_TIMEOUT_MS = 25_000;
 const MIN_SOURCE_COVERAGE = 3;
@@ -82,12 +83,22 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     console.log(`[scan] cache key canonicalized: ${target} → ${cacheKey}`);
   }
 
+  // Kick off thumbnail fetch in parallel with everything else. Marketplace
+  // path (Shopee API) when normalized has shop_id+item_id, otherwise og:image
+  // scrape. Thumbnail is History UI candy — not critical to the verdict — so
+  // we don't await it until persistScan time. On cache misses it parallelizes
+  // with the 25s scrape so it's free; on cache hits we pay up to ~2.5s
+  // before persisting.
+  const thumbnailPromise = req.kind === "url"
+    ? fetchThumbnail(target, normalized)
+    : Promise.resolve(null);
+
   // 2. Cache check (Redis, 7-day TTL). Cache hits still get persisted as a scan
   //    for this user so their recent-history reflects what they actually checked.
   const cached = await getCachedVerdict(cacheKey);
   if (cached) {
     console.log(`[scan] cache HIT key=${cacheKey} verdict="${cached.verdict}" — skipping fan-out`);
-    await persistScan(req, target, cached);
+    await persistScan(req, target, cached, await thumbnailPromise);
     return cached;
   }
   console.log(`[scan] cache MISS key=${cacheKey} — proceeding to fan-out`);
@@ -103,7 +114,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   if (distinctSourceUrls < MIN_SOURCE_COVERAGE) {
     const response = notEnoughInfo(req, sources);
     await setCachedVerdict(cacheKey, response);
-    await persistScan(req, target, response);
+    await persistScan(req, target, response, await thumbnailPromise);
     return response;
   }
 
@@ -129,7 +140,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
       input: req,
     };
     await setCachedVerdict(cacheKey, response);
-    await persistScan(req, target, response);
+    await persistScan(req, target, response, await thumbnailPromise);
     return response;
   }
 
@@ -175,7 +186,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
   };
 
   await setCachedVerdict(cacheKey, response);
-  await persistScan(req, target, response);
+  await persistScan(req, target, response, await thumbnailPromise);
   return response;
 }
 
@@ -193,10 +204,15 @@ function isStructuralRiskOnly(signals: Signal[]): boolean {
 // but never blocks the user from seeing their verdict — the scan still returns.
 // Exported so the /scan and /scan/image pre-check branches can persist
 // unsupported-marketplace results to History without going through runScan().
+//
+// thumbnailUrl is the og:image (if any) — passed in by the caller so runScan
+// can parallelize the fetch with the scrape, and the pre-check branches can
+// fetch it before they early-return.
 export async function persistScan(
   req: ScanRequest,
   target: string,
   response: ScanResponse,
+  thumbnailUrl: string | null,
 ): Promise<void> {
   try {
     await sql`
@@ -206,14 +222,15 @@ export async function persistScan(
     // JSON.stringify + explicit ::jsonb cast — more portable than relying on
     // a driver-specific `sql.json()` helper that Bun.SQL may not expose.
     await sql`
-      INSERT INTO scans (id, user_id, target, verdict, trust_score, response)
+      INSERT INTO scans (id, user_id, target, verdict, trust_score, response, thumbnail_url)
       VALUES (
         ${randomUUID()},
         ${req.user_id},
         ${target},
         ${response.verdict},
         ${response.trust_score},
-        ${JSON.stringify(response)}::jsonb
+        ${JSON.stringify(response)}::jsonb,
+        ${thumbnailUrl}
       )
     `;
   } catch (err) {

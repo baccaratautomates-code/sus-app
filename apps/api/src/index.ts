@@ -12,6 +12,7 @@ import {
 } from "./ocr";
 import { checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
+import { fetchThumbnail } from "./thumbnail";
 import { handleRevenueCatEvent } from "./webhook";
 
 // Run schema bootstrap at module load. If the DB is unreachable we log loudly
@@ -50,7 +51,7 @@ app.get("/me/scans", async (c) => {
     // no loading screen, no cache dependency. Adds ~2-3KB per row but at
     // limit=50 that's ~100KB total which is fine for one-shot fetches.
     const rows = (await sql`
-      SELECT id, target, verdict, trust_score, response, created_at
+      SELECT id, target, verdict, trust_score, response, thumbnail_url, created_at
       FROM scans
       WHERE user_id = ${userId}
       ORDER BY created_at DESC
@@ -61,6 +62,7 @@ app.get("/me/scans", async (c) => {
       verdict: string;
       trust_score: number;
       response: unknown;
+      thumbnail_url: string | null;
       created_at: Date;
     }>;
 
@@ -75,6 +77,7 @@ app.get("/me/scans", async (c) => {
         // JSON-encoded string. Defensive against future driver behavior change
         // by handling both shapes.
         response: typeof r.response === "string" ? JSON.parse(r.response) : r.response,
+        thumbnail_url: r.thumbnail_url,
         scanned_at: r.created_at.toISOString(),
       })),
     });
@@ -165,7 +168,11 @@ app.post("/scan", async (c) => {
         scanned_at: new Date().toISOString(),
         input: parsed.value,
       };
-      await persistScan(parsed.value, parsed.value.url, response);
+      // FB Marketplace listings often have a usable og:image (the listing
+      // photo) even though we can't gather signals about the seller — grab it
+      // so the History row gets a thumbnail instead of a bare URL.
+      const thumbnailUrl = await fetchThumbnail(parsed.value.url);
+      await persistScan(parsed.value, parsed.value.url, response, thumbnailUrl);
       return c.json({ ...response, is_pro: false });
     }
   }
@@ -285,8 +292,10 @@ app.post("/scan/image", async (c) => {
         };
         // Persist with the extracted URL as the History label so the row
         // shows what the user actually scanned (FB Marketplace listing URL),
-        // not the opaque "image:uploaded" cache target.
-        await persistScan(req, extractedUrl, response);
+        // not the opaque "image:uploaded" cache target. Also grab og:image
+        // so the History row gets a thumbnail.
+        const thumbnailUrl = await fetchThumbnail(extractedUrl);
+        await persistScan(req, extractedUrl, response, thumbnailUrl);
         return c.json({ ...response, is_pro: quotaIsPro });
       }
 

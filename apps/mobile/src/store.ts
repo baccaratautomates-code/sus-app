@@ -70,6 +70,10 @@ export interface RecentScan {
   // navigates directly to the Verdict screen with this — no re-scrape, no
   // dependence on the URL cache TTL.
   response: ScanResponse;
+  // og:image URL captured at scan time. Null when scrape failed, the page
+  // lacked og:image, or input wasn't a URL — ScanThumbnail falls back to
+  // favicon → letter tile.
+  thumbnailUrl: string | null;
 }
 
 // Shared in-memory state for the prototype. Mutated by fetchQuota() after each
@@ -146,6 +150,7 @@ export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
         verdict: Verdict;
         scanned_at: string;
         response: ScanResponse;
+        thumbnail_url: string | null;
       }>;
     };
     return (body.scans ?? []).map((s) => ({
@@ -155,6 +160,7 @@ export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
       verdict: s.verdict,
       scanned_at: s.scanned_at,
       response: s.response,
+      thumbnailUrl: s.thumbnail_url,
     }));
   } catch {
     return [];

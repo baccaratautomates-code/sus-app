@@ -12,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { fetchQuota, fetchRecentScans, mockState, type RecentScan } from "../store";
 import {
@@ -114,6 +115,10 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
                 { opacity: pressed ? 0.85 : 1 },
               ]}
             >
+              <ScanThumbnail
+                thumbnailUrl={item.thumbnailUrl}
+                url={item.product_name}
+              />
               <View style={styles.rowBody}>
                 <Text style={styles.rowTitle} numberOfLines={1}>
                   {item.product_name}

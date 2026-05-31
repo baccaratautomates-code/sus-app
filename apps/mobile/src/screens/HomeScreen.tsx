@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import {
   fetchQuota,
@@ -249,6 +250,10 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
                   { opacity: pressed ? 0.85 : 1 },
                 ]}
               >
+                <ScanThumbnail
+                  thumbnailUrl={scan.thumbnailUrl}
+                  url={scan.product_name}
+                />
                 <View style={styles.recentBody}>
                   <Text style={styles.recentName} numberOfLines={1}>
                     {scan.product_name}
