@@ -66,6 +66,10 @@ export interface RecentScan {
   product_name: string;
   verdict: Verdict;
   scanned_at: string;
+  // The original ScanResponse, captured at scan time. Tapping a history row
+  // navigates directly to the Verdict screen with this — no re-scrape, no
+  // dependence on the URL cache TTL.
+  response: ScanResponse;
 }
 
 // Shared in-memory state for the prototype. Mutated by fetchQuota() after each
@@ -141,6 +145,7 @@ export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
         target: string;
         verdict: Verdict;
         scanned_at: string;
+        response: ScanResponse;
       }>;
     };
     return (body.scans ?? []).map((s) => ({
@@ -149,6 +154,7 @@ export async function fetchRecentScans(limit = 10): Promise<RecentScan[]> {
       product_name: s.target,
       verdict: s.verdict,
       scanned_at: s.scanned_at,
+      response: s.response,
     }));
   } catch {
     return [];

@@ -55,11 +55,11 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     load();
   };
 
-  // Tapping a row re-runs the scan. The 7-day URL cache on the API side returns
-  // the previous verdict instantly without re-scraping, so this is effectively
-  // a "view detail" affordance without needing a separate /scans/:id endpoint.
-  const openScan = (url: string) =>
-    navigation.navigate("Loading", { kind: "url", url });
+  // Tapping a row is view-only — navigate straight to the stored Verdict.
+  // No re-scrape, no Loading animation, no quota burn, no cache dependency.
+  // History is a record of past results, not a re-run trigger.
+  const openScan = (scan: RecentScan) =>
+    navigation.navigate("Verdict", { result: scan.response });
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
@@ -100,7 +100,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
           refreshing={refreshing}
           renderItem={({ item }) => (
             <Pressable
-              onPress={() => openScan(item.product_name)}
+              onPress={() => openScan(item)}
               style={({ pressed }) => [
                 styles.row,
                 { opacity: pressed ? 0.85 : 1 },

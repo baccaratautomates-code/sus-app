@@ -226,7 +226,16 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
         ) : (
           <View style={styles.recentList}>
             {recentScans.map((scan) => (
-              <View key={scan.id} style={styles.recentRow}>
+              <Pressable
+                key={scan.id}
+                onPress={() =>
+                  navigation.navigate("Verdict", { result: scan.response })
+                }
+                style={({ pressed }) => [
+                  styles.recentRow,
+                  { opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
                 <View style={styles.recentBody}>
                   <Text style={styles.recentName} numberOfLines={1}>
                     {scan.product_name}
@@ -236,7 +245,7 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
                   </Text>
                 </View>
                 <VerdictBadge verdict={scan.verdict} size="sm" />
-              </View>
+              </Pressable>
             ))}
           </View>
         )}

@@ -45,8 +45,12 @@ app.get("/me/scans", async (c) => {
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, limitRaw), 50) : 10;
 
   try {
+    // Include the full response JSONB so tapping a history row can navigate
+    // straight to the Verdict screen with the original result — no re-scan,
+    // no loading screen, no cache dependency. Adds ~2-3KB per row but at
+    // limit=50 that's ~100KB total which is fine for one-shot fetches.
     const rows = (await sql`
-      SELECT id, target, verdict, trust_score, created_at
+      SELECT id, target, verdict, trust_score, response, created_at
       FROM scans
       WHERE user_id = ${userId}
       ORDER BY created_at DESC
@@ -56,6 +60,7 @@ app.get("/me/scans", async (c) => {
       target: string;
       verdict: string;
       trust_score: number;
+      response: unknown;
       created_at: Date;
     }>;
 
@@ -65,6 +70,7 @@ app.get("/me/scans", async (c) => {
         target: r.target,
         verdict: r.verdict,
         trust_score: r.trust_score,
+        response: r.response,
         scanned_at: r.created_at.toISOString(),
       })),
     });
