@@ -350,3 +350,119 @@ function genericFallback(url: string, domain: string): NormalizedInput {
     item_id: null,
   };
 }
+
+// PRD §1 scopes Sus to *product/seller listings* — TikTok Shop, Shopee, Lazada,
+// FB Marketplace, IG, plus independent dropshipper sites. News / government /
+// social / search domains aren't sellers and shouldn't burn the user's quota
+// returning a generic "domain is legit" verdict that misses the point.
+//
+// The check is intentionally conservative: only obvious non-commerce domains
+// get blocked. Anything ambiguous (unknown TLD, dropshipper-looking site,
+// brand DTC store) still proceeds to the standard scan pipeline.
+const NON_COMMERCE_DOMAINS: ReadonlySet<string> = new Set([
+  // PH news
+  "abs-cbn.com",
+  "gmanetwork.com",
+  "rappler.com",
+  "philstar.com",
+  "inquirer.net",
+  "manilatimes.net",
+  "cnnphilippines.com",
+  "mb.com.ph",
+  "businessworld-online.com",
+  "bworldonline.com",
+  // Global news / media
+  "bbc.com",
+  "bbc.co.uk",
+  "cnn.com",
+  "nytimes.com",
+  "reuters.com",
+  "theguardian.com",
+  "washingtonpost.com",
+  "ft.com",
+  "wsj.com",
+  "bloomberg.com",
+  "aljazeera.com",
+  "apnews.com",
+  "npr.org",
+  // Encyclopedias / reference
+  "wikipedia.org",
+  "wikimedia.org",
+  "britannica.com",
+  // Search engines
+  "google.com",
+  "bing.com",
+  "yahoo.com",
+  "duckduckgo.com",
+  "baidu.com",
+  // Social platforms not on our marketplace allowlist (TikTok / FB / IG ARE
+  // allowed — they're listed earlier in the marketplace parser).
+  "twitter.com",
+  "x.com",
+  "youtube.com",
+  "youtu.be",
+  "reddit.com",
+  "linkedin.com",
+  "pinterest.com",
+  "tumblr.com",
+  "snapchat.com",
+  "threads.net",
+  "mastodon.social",
+  // Code hosts / dev tools (people occasionally paste these)
+  "github.com",
+  "gitlab.com",
+  "stackoverflow.com",
+]);
+
+// TLD suffixes for institutional sites that are definitionally non-commerce.
+const NON_COMMERCE_TLD_SUFFIXES: readonly string[] = [
+  ".gov",
+  ".gov.ph",
+  ".gov.us",
+  ".gov.uk",
+  ".gov.au",
+  ".gob.ph",
+  ".edu",
+  ".edu.ph",
+  ".ac.uk",
+  ".mil",
+];
+
+export type NonCommerceCategory = "news" | "social" | "search" | "institutional" | "reference";
+
+// Returns the category if the URL's domain is on the non-commerce list,
+// otherwise null (meaning "proceed with normal scan"). The category is
+// informational — the rejection message is the same across categories so
+// the user always sees the same "paste a product link" copy.
+export function classifyNonCommerce(rawUrl: string): NonCommerceCategory | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const domain = getDomain(withScheme, { validHosts: ["localhost"] });
+  if (!domain) return null;
+
+  // Marketplaces always win — even though tiktok.com would technically match
+  // "social" if it weren't on our marketplace list, we never want to gate
+  // those out. The normalize parser handles that branch first; this function
+  // is only consulted when the marketplace lookup didn't claim the URL.
+
+  if (NON_COMMERCE_DOMAINS.has(domain)) {
+    if (domain === "google.com" || domain === "bing.com" || domain === "yahoo.com" || domain === "duckduckgo.com" || domain === "baidu.com") {
+      return "search";
+    }
+    if (domain === "wikipedia.org" || domain === "wikimedia.org" || domain === "britannica.com") {
+      return "reference";
+    }
+    if (domain === "twitter.com" || domain === "x.com" || domain === "youtube.com" || domain === "youtu.be" || domain === "reddit.com" || domain === "linkedin.com" || domain === "pinterest.com" || domain === "tumblr.com" || domain === "snapchat.com" || domain === "threads.net" || domain === "mastodon.social" || domain === "github.com" || domain === "gitlab.com" || domain === "stackoverflow.com") {
+      return "social";
+    }
+    return "news";
+  }
+
+  const lowered = domain.toLowerCase();
+  for (const suffix of NON_COMMERCE_TLD_SUFFIXES) {
+    if (lowered.endsWith(suffix)) return "institutional";
+  }
+
+  return null;
+}

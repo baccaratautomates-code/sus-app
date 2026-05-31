@@ -16,7 +16,12 @@ import {
 const USE_NATIVE_DRIVER = Platform.OS !== "web";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BrandMark } from "../components/BrandMark";
-import { QuotaExceededError, requestImageScan, requestScan } from "../store";
+import {
+  NonCommerceUrlError,
+  QuotaExceededError,
+  requestImageScan,
+  requestScan,
+} from "../store";
 import {
   colors,
   elevation,
@@ -52,7 +57,13 @@ const IMAGE_STATUSES = [
 const STATUS_INTERVAL_MS = 1800;
 const SCAN_TIMEOUT_MS = 30_000;
 
-type ScanState = { kind: "loading" } | { kind: "error"; message: string };
+type ScanState =
+  | { kind: "loading" }
+  | { kind: "error"; message: string }
+  // PRD §1 input-gate rejection. The server returned 422 because the URL
+  // isn't a product/seller listing (news, social, gov, etc.). Render a
+  // dedicated explainer instead of the generic "Try again" error.
+  | { kind: "wrong-input"; title: string; message: string };
 
 export default function LoadingScreen({ navigation, route }: ScreenProps<"Loading">) {
   const [statusIdx, setStatusIdx] = useState(0);
@@ -94,6 +105,12 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
       // need to upgrade or wait for the monthly reset.
       if (err instanceof QuotaExceededError) {
         navigation.replace("Paywall");
+        return;
+      }
+      // PRD §1 input-gate rejection (HTTP 422). The URL isn't a product
+      // listing — show the dedicated "not a product link" explainer.
+      if (err instanceof NonCommerceUrlError) {
+        setState({ kind: "wrong-input", title: err.title, message: err.message });
         return;
       }
       const isAbort =
@@ -146,6 +163,32 @@ export default function LoadingScreen({ navigation, route }: ScreenProps<"Loadin
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Wrong-input state — non-commerce URL caught by the PRD §1 input gate.
+  // Different from the generic error state: no "Try again" (retrying the
+  // same URL will hit the same gate), just a "Back to scan" CTA.
+  if (state.kind === "wrong-input") {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.errorWrap}>
+          <View style={styles.wrongIconWrap}>
+            <MaterialIcons name="link-off" size={48} color={colors.primary} />
+          </View>
+          <Text style={styles.errorHeading}>{state.title}</Text>
+          <Text style={styles.errorMessage}>{state.message}</Text>
+          <Pressable
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [
+              styles.retry,
+              { opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <Text style={styles.retryLabel}>Try another link</Text>
+          </Pressable>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   // Error state retains the simpler centred layout from before.
   if (state.kind === "error") {
@@ -366,6 +409,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: spacing.xl,
+  },
+  wrongIconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: colors.primaryFixed,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: spacing.lg,
   },
   errorHeading: {
     ...typography.headlineLgMobile,

@@ -35,6 +35,19 @@ export class QuotaExceededError extends Error {
   }
 }
 
+// Thrown when the API returns 422 non_commerce_url. PRD §1 scopes Sus to
+// product/seller listings — news / gov / social / search URLs hit this gate
+// before quota is consumed. LoadingScreen catches it and renders a "not a
+// product link" message instead of running the scan.
+export class NonCommerceUrlError extends Error {
+  title: string;
+  constructor(title: string, message: string) {
+    super(message);
+    this.name = "NonCommerceUrlError";
+    this.title = title;
+  }
+}
+
 // Inspects a non-2xx response and throws either QuotaExceededError (for 402)
 // or a generic Error with the response body inlined for everything else.
 // Centralizes the error shape so both requestScan and requestImageScan
@@ -55,6 +68,25 @@ async function throwFromResponse(res: Response): Promise<never> {
       );
     } catch (err) {
       if (err instanceof QuotaExceededError) throw err;
+      // JSON parse failed — fall through to generic error below.
+    }
+  }
+  if (res.status === 422) {
+    try {
+      const body = JSON.parse(text) as {
+        error?: string;
+        title?: string;
+        message?: string;
+      };
+      if (body.error === "non_commerce_url") {
+        throw new NonCommerceUrlError(
+          body.title ?? "That doesn't look like a product link.",
+          body.message ??
+            "Sus checks product and seller listings before you buy. Try a link from Shopee, Lazada, TikTok Shop, Facebook Marketplace, or Instagram.",
+        );
+      }
+    } catch (err) {
+      if (err instanceof NonCommerceUrlError) throw err;
       // JSON parse failed — fall through to generic error below.
     }
   }

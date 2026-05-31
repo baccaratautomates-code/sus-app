@@ -10,6 +10,7 @@ import {
   ocrImage,
   unsupportedMarketplaceMessage,
 } from "./ocr";
+import { classifyNonCommerce } from "./normalize";
 import { canAccessProFeatures, checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
 import { fetchThumbnail } from "./thumbnail";
@@ -369,6 +370,28 @@ app.post("/scan", async (c) => {
   const parsed = parseScanRequest(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
+  // Input gate (PRD §1 scope: product/seller listings only). Block obvious
+  // non-commerce domains — news sites, search engines, social platforms,
+  // government / education TLDs — with a friendly "paste a product link"
+  // message before they consume quota or trigger a 25s scrape that would
+  // return a meaningless generic-domain verdict.
+  if (parsed.value.kind === "url" && parsed.value.url) {
+    const nonCommerce = classifyNonCommerce(parsed.value.url);
+    if (nonCommerce) {
+      console.log(`[scan] ${parsed.value.url} rejected — non-commerce (${nonCommerce})`);
+      return c.json(
+        {
+          error: "non_commerce_url",
+          category: nonCommerce,
+          title: "That doesn't look like a product link.",
+          message:
+            "Sus checks product and seller listings before you buy. Try a link from Shopee, Lazada, TikTok Shop, Facebook Marketplace, or Instagram.",
+        },
+        422,
+      );
+    }
+  }
+
   // Early-exit for platforms with no usable third-party signals. Matches the
   // /scan/image pre-check so the share-sheet flow (raw FB Marketplace link)
   // gets the same tailored copy instead of a generic 25s-scrape "Not Enough Info".
@@ -494,6 +517,24 @@ app.post("/scan/image", async (c) => {
 
     const extractedUrl = extractUrl(ocrText);
     if (extractedUrl) {
+      // Same PRD §1 scope gate as the URL endpoint. If OCR pulled a news /
+      // social / institutional URL out of a screenshot, reject with the same
+      // "paste a product link" copy instead of running the scrape pipeline.
+      const nonCommerce = classifyNonCommerce(extractedUrl);
+      if (nonCommerce) {
+        console.log(`[scan/image] extracted ${extractedUrl} rejected — non-commerce (${nonCommerce})`);
+        return c.json(
+          {
+            error: "non_commerce_url",
+            category: nonCommerce,
+            title: "That doesn't look like a product link.",
+            message:
+              "Sus checks product and seller listings before you buy. Try a link from Shopee, Lazada, TikTok Shop, Facebook Marketplace, or Instagram.",
+          },
+          422,
+        );
+      }
+
       // Early-exit for platforms we can't usefully evaluate. Don't burn quota
       // or the 25s scrape fan-out when we know upfront the result will be
       // generic "Not Enough Info" — give the user tailored copy instead.
