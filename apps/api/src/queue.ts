@@ -12,6 +12,7 @@ export const SCRAPE_SOURCES = [
   "trustpilot",
   "scamadviser",
   "reddit",
+  "dti",
   "whois",
   "wayback",
   "price-sanity",

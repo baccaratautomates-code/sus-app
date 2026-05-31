@@ -6,6 +6,7 @@ config();
 import { Worker } from "bullmq";
 import IORedis from "ioredis";
 import type { ScrapeJob, ScrapeResult } from "@sus/shared";
+import { dtiScraper } from "./scrapers/dti";
 import { facebookPageScraper } from "./scrapers/facebook-page";
 import { instagramProfileScraper } from "./scrapers/instagram-profile";
 import { internalScamDbScraper } from "./scrapers/internal-scam-db";
@@ -42,6 +43,7 @@ connection.on("reconnecting", () => console.warn("[workers] redis reconnectingâ€
 type ScraperFn = (input: { id: string; data: ScrapeJob }) => Promise<ScrapeResult>;
 
 const SCRAPERS: Record<string, ScraperFn> = {
+  dti: dtiScraper,
   "facebook-page": facebookPageScraper,
   "instagram-profile": instagramProfileScraper,
   "internal-scam-db": internalScamDbScraper,
