@@ -50,7 +50,7 @@ function notEnoughInfo(req: ScanRequest, sources: Source[]): ScanResponse {
     trust_score: 0,
     verdict: "Not Enough Info",
     summary:
-      "We couldn't find enough independent signals about this seller or product to make a confident judgment. Treat it with caution and look for more reviews before purchasing.",
+      "Public signals on this seller are too thin to call. Fewer than three independent sources had anything to say about them — not necessarily a bad sign, but not enough to vouch for them either. Message the seller first and read the reviews on the listing page itself before paying.",
     red_flags: [],
     green_flags: [],
     confidence: "Low",
@@ -141,7 +141,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     const response: ScanResponse = {
       trust_score: 0,
       verdict: "Not Enough Info",
-      summary: `We couldn't find evidence specific to this seller. ${caveat} Treat with caution and check reviews or seller history before purchasing.`,
+      summary: `Nothing specific about this seller turned up — only the platform-level caveat. ${caveat} If you're going ahead, check their profile age and DM them first; for in-person trades, prefer cash-on-delivery.`,
       red_flags: [],
       green_flags: [],
       confidence: "Low",
@@ -186,7 +186,7 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     synth.red_flags = [];
     synth.green_flags = [];
     synth.summary =
-      "We couldn't gather enough independent, high-confidence evidence to label this seller. Treat it with caution and look for more reviews before purchasing.";
+      "Public evidence on this seller is too uncertain to support a confident judgment. Read the reviews on the listing directly, and message the seller before paying — that's the most useful signal you can get yourself.";
     // Sources stay — they show the user what we checked, even though we couldn't conclude.
   }
 

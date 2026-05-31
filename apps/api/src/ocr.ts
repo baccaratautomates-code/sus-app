@@ -88,8 +88,8 @@ export function detectUnsupportedMarketplace(url: string): UnsupportedReason | n
 export function unsupportedMarketplaceMessage(reason: UnsupportedReason): string {
   switch (reason) {
     case "fb-marketplace":
-      return "Sus doesn't yet evaluate individual Facebook Marketplace sellers — third-party watchdogs like Trustpilot, Scamadviser, and DTI don't index P2P listings. Check the seller's profile age and message history directly, and prefer meet-up with cash-on-delivery. Sus works best on Shopee, Lazada, TikTok Shop, and brand websites.";
+      return "Facebook Marketplace listings can't be checked — third-party watchdogs (Trustpilot, Scamadviser, DTI) don't index P2P trades, and FB itself walls profile data behind login. Best you can do: check the seller's profile age, message them first, and meet up with cash-on-delivery when possible. Sus works best on Shopee, Lazada, TikTok Shop, and brand websites.";
     case "ig-shop":
-      return "Sus doesn't yet evaluate Instagram shop posts. Try a brand website or marketplace listing URL instead, or check seller reviews on the platform directly.";
+      return "Instagram shop posts can't be checked — there's no public review data Sus can pull. Try a brand website or marketplace listing URL instead, or scroll the seller's tagged posts and DM history before paying.";
   }
 }

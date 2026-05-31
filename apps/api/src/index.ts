@@ -319,8 +319,8 @@ app.post("/scan/image", async (c) => {
     // toward a clearer photo or pasting the URL directly. We don't burn quota
     // on this failure — the user got no value out of the scan.
     const summary = ocrText
-      ? "We couldn't find a product URL in the image. Try cropping the screenshot so the address bar is visible, or paste the listing URL directly."
-      : "We couldn't read text from this image. Try a clearer photo or paste the listing URL directly.";
+      ? "No product URL in this image. Crop the screenshot so the address bar is visible, or paste the listing URL directly."
+      : "No readable text in this image. Try a clearer photo, or paste the listing URL directly.";
 
     const response: ScanResponse = {
       trust_score: 0,
