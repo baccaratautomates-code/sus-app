@@ -1,11 +1,12 @@
 import { MaterialIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
+import { useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { ConfirmModal } from "../components/ConfirmModal";
 import { UserAvatar } from "../components/UserAvatar";
-import { confirm } from "../confirm";
 import { useAuth } from "../context/AuthContext";
 import { usePro } from "../context/ProContext";
 import { deleteAccount } from "../store";
@@ -18,9 +19,14 @@ import {
 } from "../theme";
 import type { ScreenProps } from "../navigation";
 
+type PendingAction = "signout" | "delete" | null;
+
 export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) {
   const { user, signOut } = useAuth();
   const { isPro } = usePro();
+  // Which confirmation is being shown, if any. Null = no modal. Each action
+  // path resets to null on confirm or cancel so the modal closes.
+  const [pending, setPending] = useState<PendingAction>(null);
 
   // Pretty name: prefer the Google profile name, then fall back to the part of
   // the email before "@" so email-only users see something friendlier than the
@@ -31,37 +37,24 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
     user?.email?.split("@")[0] ??
     "Account";
 
-  const onSignOut = async () => {
-    const ok = await confirm({
-      title: "Sign out",
-      message: "Are you sure you want to sign out?",
-      confirmLabel: "Sign out",
-      destructive: true,
-    });
-    if (ok) await signOut();
-    // AuthProvider's onAuthStateChange clears the session, Root re-renders
-    // the Auth stack automatically. No imperative nav needed.
-  };
-
-  // Hard-delete the account: wipes scan history, public.users row, and the
-  // auth.users record. After this the same Google sign-in starts fresh with
-  // a brand-new UUID. Confirmation is mandatory because there is no undo.
-  const onDeleteAccount = async () => {
-    const ok = await confirm({
-      title: "Delete account",
-      message:
-        "This permanently deletes your account, all scan history, and any saved data. This cannot be undone.",
-      confirmLabel: "Delete forever",
-      destructive: true,
-    });
-    if (!ok) return;
-    try {
-      await deleteAccount();
-      // signOut clears the now-orphaned local session token. Root sees no
-      // session and renders Auth, completing the deletion flow.
+  // Both destructive actions pop the same in-app ConfirmModal — same styling,
+  // same backdrop-to-cancel behavior. Logic for each lives in onConfirm below.
+  const onConfirm = async () => {
+    if (pending === "signout") {
+      setPending(null);
       await signOut();
-    } catch (err) {
-      Alert.alert("Couldn't delete account", (err as Error).message);
+      return;
+    }
+    if (pending === "delete") {
+      setPending(null);
+      try {
+        await deleteAccount();
+        // signOut clears the now-orphaned local session token. Root sees no
+        // session and renders Auth, completing the deletion flow.
+        await signOut();
+      } catch (err) {
+        Alert.alert("Couldn't delete account", (err as Error).message);
+      }
     }
   };
 
@@ -109,6 +102,12 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
             label={isPro ? "Manage subscription" : "Upgrade to Pro"}
             onPress={() => navigation.navigate("Paywall")}
           />
+          <Row
+            icon="delete-outline"
+            label="Delete account"
+            onPress={() => setPending("delete")}
+            destructive
+          />
         </View>
 
         <Text style={styles.sectionHeading}>ABOUT</Text>
@@ -133,7 +132,7 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
         </View>
 
         <Pressable
-          onPress={onSignOut}
+          onPress={() => setPending("signout")}
           style={({ pressed }) => [
             styles.signOutBtn,
             { opacity: pressed ? 0.85 : 1 },
@@ -142,17 +141,27 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
           <MaterialIcons name="logout" size={20} color={colors.highRisk} />
           <Text style={styles.signOutLabel}>Sign out</Text>
         </Pressable>
-
-        <Pressable
-          onPress={onDeleteAccount}
-          style={({ pressed }) => [
-            styles.deleteBtn,
-            { opacity: pressed ? 0.85 : 1 },
-          ]}
-        >
-          <Text style={styles.deleteLabel}>Delete account</Text>
-        </Pressable>
       </ScrollView>
+
+      <ConfirmModal
+        visible={pending === "signout"}
+        title="Sign out"
+        message="You'll need to sign in again to access your scans."
+        confirmLabel="Sign out"
+        destructive
+        onConfirm={onConfirm}
+        onCancel={() => setPending(null)}
+      />
+
+      <ConfirmModal
+        visible={pending === "delete"}
+        title="Delete account?"
+        message="This permanently deletes your account, all scan history, and any saved data. This cannot be undone."
+        confirmLabel="Delete forever"
+        destructive
+        onConfirm={onConfirm}
+        onCancel={() => setPending(null)}
+      />
 
       <BottomNav active="settings" />
     </SafeAreaView>
@@ -164,14 +173,19 @@ interface RowProps {
   label: string;
   onPress?: () => void;
   external?: boolean;
+  // Renders icon + label in the High Risk red palette. Used for destructive
+  // actions (Delete account) so the user reads them as one-way doors.
+  destructive?: boolean;
 }
 
-function Row({ icon, label, onPress, external }: RowProps) {
+function Row({ icon, label, onPress, external, destructive }: RowProps) {
   const trailing = external ? "open-in-new" : "chevron-right";
+  const iconColor = destructive ? colors.highRisk : colors.primary;
+  const labelColor = destructive ? colors.highRisk : colors.text;
   const content = (
     <View style={styles.row}>
-      <MaterialIcons name={icon} size={20} color={colors.primary} />
-      <Text style={styles.rowLabel}>{label}</Text>
+      <MaterialIcons name={icon} size={20} color={iconColor} />
+      <Text style={[styles.rowLabel, { color: labelColor }]}>{label}</Text>
       {onPress && (
         <MaterialIcons name={trailing} size={20} color={colors.textMuted} />
       )}
@@ -293,17 +307,5 @@ const styles = StyleSheet.create({
     color: colors.highRisk,
     fontWeight: "700", fontFamily: "Inter_700Bold",
     fontSize: 16,
-  },
-  deleteBtn: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: spacing.md,
-    marginTop: spacing.sm,
-  },
-  deleteLabel: {
-    ...typography.labelMd,
-    color: colors.textMuted,
-    fontWeight: "500", fontFamily: "Inter_500Medium",
-    textDecorationLine: "underline",
   },
 });
