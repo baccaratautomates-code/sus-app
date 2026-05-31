@@ -33,9 +33,16 @@ export interface QuotaStatus {
  */
 export async function checkQuota(userId: string): Promise<QuotaStatus> {
   if (QUOTA_BYPASS_USERS.has(userId)) {
+    // Bypass users get the full Pro experience for testing — unlimited scans
+    // AND access to Pro-gated features like Watch. We report isPro=true even
+    // though their DB row has is_pro=false; that's the whole point of the
+    // bypass list (avoid colliding with RevenueCat-webhook-managed is_pro
+    // state on a real account). Mobile uses this flag to gate UI fast-paths
+    // to Paywall, so reporting true here matches what the server allow check
+    // (canAccessProFeatures) will say anyway.
     return {
       allowed: true,
-      isPro: false,
+      isPro: true,
       scansUsed: 0,
       scansRemaining: Number.POSITIVE_INFINITY,
     };
