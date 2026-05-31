@@ -58,8 +58,16 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   // Tapping a row is view-only — navigate straight to the stored Verdict.
   // No re-scrape, no Loading animation, no quota burn, no cache dependency.
   // History is a record of past results, not a re-run trigger.
-  const openScan = (scan: RecentScan) =>
-    navigation.navigate("Verdict", { result: scan.response });
+  //
+  // Falls back to re-running the scan if response is missing — handles old
+  // rows persisted before /me/scans started returning the JSONB column.
+  const openScan = (scan: RecentScan) => {
+    if (scan.response) {
+      navigation.navigate("Verdict", { result: scan.response });
+    } else {
+      navigation.navigate("Loading", { kind: "url", url: scan.product_name });
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>

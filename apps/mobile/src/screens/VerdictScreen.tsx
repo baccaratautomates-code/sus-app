@@ -71,19 +71,27 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   }, []);
   const isUnlimited = scansLeft < 0;
 
-  const accent = verdictColor(result.verdict);
-  const accentContainer = verdictContainerColor(result.verdict);
-  const onAccentContainer = onVerdictContainerColor(result.verdict);
+  // Defensive normalization. Old persisted scans (or any payload where the
+  // server forgot to parse the JSONB string back to an object) can be missing
+  // array fields — without these fallbacks, `result.sources.length` and the
+  // flag slices throw and crash the whole screen.
+  const verdict = result.verdict ?? "Not Enough Info";
+  const redFlags = result.red_flags ?? [];
+  const greenFlags = result.green_flags ?? [];
+  const sources = result.sources ?? [];
+
+  const accent = verdictColor(verdict);
+  const accentContainer = verdictContainerColor(verdict);
+  const onAccentContainer = onVerdictContainerColor(verdict);
 
   // For "Looks Legit" we lead with green flags; for everything else, red flags
   // are the story. "Not Enough Info" intentionally has nothing to say either way.
-  const showRedFlags =
-    result.verdict === "Suspicious" || result.verdict === "High Risk";
-  const showGreenFlags = result.verdict === "Looks Legit";
+  const showRedFlags = verdict === "Suspicious" || verdict === "High Risk";
+  const showGreenFlags = verdict === "Looks Legit";
   const flagItems = showRedFlags
-    ? result.red_flags.slice(0, 3)
+    ? redFlags.slice(0, 3)
     : showGreenFlags
-      ? result.green_flags.slice(0, 3)
+      ? greenFlags.slice(0, 3)
       : [];
   const flagsHeading = showRedFlags
     ? "Red flags"
@@ -98,7 +106,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
     else Alert.alert("Watching", "We'll alert you if new red flags emerge");
   };
 
-  const confLvl = confidenceLevel(result.confidence);
+  const confLvl = confidenceLevel(result.confidence ?? "Low");
 
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
@@ -116,11 +124,11 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Verdict card */}
         <View style={[styles.card, { borderColor: accentContainer }]}>
-          <VerdictBadge verdict={result.verdict} />
+          <VerdictBadge verdict={verdict} />
 
           <View style={styles.scoreRow}>
             <Text style={[styles.scoreNumber, { color: colors.primary }]}>
-              {result.trust_score}
+              {result.trust_score ?? 0}
             </Text>
             <Text style={styles.scoreOutOf}>/ 100</Text>
           </View>
@@ -142,11 +150,11 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
               ))}
             </View>
             <Text style={[styles.confidenceValue, { color: accent }]}>
-              {result.confidence}
+              {result.confidence ?? "Low"}
             </Text>
           </View>
 
-          <Text style={styles.summary}>{result.summary}</Text>
+          <Text style={styles.summary}>{result.summary ?? ""}</Text>
 
           {flagItems.length > 0 && (
             <View style={styles.flagsSection}>
@@ -157,7 +165,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
                 <View key={i} style={styles.flagRow}>
                   <View style={styles.flagLeft}>
                     <MaterialIcons
-                      name={flagIcon(result.verdict)}
+                      name={flagIcon(verdict)}
                       size={20}
                       color={accent}
                     />
@@ -175,8 +183,8 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
             style={styles.sourcesToggle}
           >
             <Text style={styles.sourcesToggleLabel}>
-              {sourcesOpen ? "Hide" : "View all"} {result.sources.length} source
-              {result.sources.length === 1 ? "" : "s"}
+              {sourcesOpen ? "Hide" : "View all"} {sources.length} source
+              {sources.length === 1 ? "" : "s"}
             </Text>
             <MaterialIcons
               name={sourcesOpen ? "expand-less" : "expand-more"}
@@ -187,7 +195,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
 
           {sourcesOpen && (
             <View style={styles.sourcesList}>
-              {result.sources.map((s, i) => (
+              {sources.map((s, i) => (
                 <Pressable
                   key={i}
                   onPress={() => Linking.openURL(s.url).catch(() => {})}

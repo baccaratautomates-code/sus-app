@@ -228,9 +228,19 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
             {recentScans.map((scan) => (
               <Pressable
                 key={scan.id}
-                onPress={() =>
-                  navigation.navigate("Verdict", { result: scan.response })
-                }
+                onPress={() => {
+                  // scan.response can be undefined for scans persisted before
+                  // /me/scans started returning the JSONB column — fall back
+                  // to a re-scan in that case so the row still works.
+                  if (scan.response) {
+                    navigation.navigate("Verdict", { result: scan.response });
+                  } else {
+                    navigation.navigate("Loading", {
+                      kind: "url",
+                      url: scan.product_name,
+                    });
+                  }
+                }}
                 style={({ pressed }) => [
                   styles.recentRow,
                   { opacity: pressed ? 0.85 : 1 },

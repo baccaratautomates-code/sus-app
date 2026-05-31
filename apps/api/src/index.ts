@@ -70,7 +70,11 @@ app.get("/me/scans", async (c) => {
         target: r.target,
         verdict: r.verdict,
         trust_score: r.trust_score,
-        response: r.response,
+        // Bun.SQL returns JSONB columns as strings, not auto-parsed objects.
+        // Parse here so the mobile client receives a real ScanResponse, not a
+        // JSON-encoded string. Defensive against future driver behavior change
+        // by handling both shapes.
+        response: typeof r.response === "string" ? JSON.parse(r.response) : r.response,
         scanned_at: r.created_at.toISOString(),
       })),
     });
