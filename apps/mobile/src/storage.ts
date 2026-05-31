@@ -1,27 +1,22 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Per-user onboarded key. Each Supabase user gets their own flag so a fresh
-// account on a shared device (demo laptop, friend signing up next to you)
-// sees the onboarding carousel — the previous version was a single device
-// flag, which meant only the very first user on a browser ever saw it.
-// Keys are versioned so a future onboarding redesign can re-trigger.
-function onboardedKey(userId: string): string {
-  return `sus:onboarded:v1:${userId}`;
-}
+// Device-wide onboarded flag. Onboarding runs BEFORE sign-in so the carousel
+// is the user's first impression of the app — it has to be keyed by device,
+// not by user, because we don't know who the user is yet at that point.
+// Versioned so a future onboarding redesign can re-trigger the carousel.
+const ONBOARDED_KEY = "sus:onboarded:v1";
 
-export async function isOnboarded(userId: string): Promise<boolean> {
-  if (!userId) return false;
+export async function isOnboarded(): Promise<boolean> {
   try {
-    return (await AsyncStorage.getItem(onboardedKey(userId))) === "true";
+    return (await AsyncStorage.getItem(ONBOARDED_KEY)) === "true";
   } catch {
     return false;
   }
 }
 
-export async function markOnboarded(userId: string): Promise<void> {
-  if (!userId) return;
+export async function markOnboarded(): Promise<void> {
   try {
-    await AsyncStorage.setItem(onboardedKey(userId), "true");
+    await AsyncStorage.setItem(ONBOARDED_KEY, "true");
   } catch {
     // Swallow — onboarding will just show again next launch, which is
     // annoying but not broken.

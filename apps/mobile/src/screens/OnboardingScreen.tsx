@@ -69,8 +69,9 @@ export default function OnboardingScreen({}: ScreenProps<"Onboarding">) {
     if (clamped !== pageIndex) setPageIndex(clamped);
   };
 
-  // Mark onboarding complete and let Root re-render with the next stack
-  // (Auth if no session, otherwise the app stack starting at Home).
+  // Mark onboarding complete and let Root re-render with the next stack.
+  // Onboarding runs before sign-in, so the user lands on Auth next (or
+  // straight into Home if they signed in on a previous device install).
   const finish = async () => {
     await markComplete();
   };

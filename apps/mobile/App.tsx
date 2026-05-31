@@ -92,9 +92,10 @@ function Root() {
     }
   }, [user?.id]);
 
-  // Block render until auth resolves. Onboarded loads asynchronously after
-  // sign-in (it's now per-user), so we only wait on it when there IS a session.
-  if (authLoading || (session && onboarded === null)) {
+  // Block render until both auth and onboarded flag resolve. Onboarded is a
+  // device-wide flag now (loads at boot independent of session) so we always
+  // wait on it, not just when signed in.
+  if (authLoading || onboarded === null) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
@@ -110,16 +111,19 @@ function Root() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {!session ? (
-          <Stack.Screen
-            name="Auth"
-            component={AuthScreen}
-            options={{ headerShown: false, gestureEnabled: false }}
-          />
-        ) : !onboarded ? (
+        {!onboarded ? (
+          // Onboarding runs FIRST — the user sees the value prop before being
+          // asked to sign in. Device-wide flag, so each browser/install sees
+          // it exactly once regardless of which user signs in afterwards.
           <Stack.Screen
             name="Onboarding"
             component={OnboardingScreen}
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
+        ) : !session ? (
+          <Stack.Screen
+            name="Auth"
+            component={AuthScreen}
             options={{ headerShown: false, gestureEnabled: false }}
           />
         ) : (
