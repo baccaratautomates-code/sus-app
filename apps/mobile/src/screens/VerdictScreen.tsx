@@ -20,6 +20,7 @@ import {
   ProRequiredError,
   createWatch,
   fetchQuota,
+  fetchWatches,
   mockState,
 } from "../store";
 import {
@@ -105,7 +106,29 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       ? "Green flags"
       : "";
 
-  const [watching, setWatching] = useState(false);
+  // Watch state — three booleans rather than one tri-state because the
+  // transitions are independent (loading → watched after success; loading →
+  // unwatched after failure).
+  const [creatingWatch, setCreatingWatch] = useState(false);
+  const [isWatched, setIsWatched] = useState(false);
+
+  // The URL this Verdict is about. Used both as the watch key and the
+  // ScanThumbnail favicon fallback below.
+  const targetUrl =
+    result.input?.kind === "url" ? (result.input.url ?? "") : "";
+
+  // On mount, check if this listing is already on the user's Watch list.
+  // Cheap: one /me/watches call returning ≤50 rows. Avoids the "I tapped Watch
+  // earlier, came back to this Verdict, and the button still says Watch" gap.
+  useEffect(() => {
+    if (!targetUrl) return;
+    let cancelled = false;
+    fetchWatches().then((ws) => {
+      if (cancelled) return;
+      setIsWatched(ws.some((w) => w.target === targetUrl));
+    });
+    return () => { cancelled = true; };
+  }, [targetUrl]);
 
   const onShare = () => Alert.alert("Share", "Share verdict — coming soon");
   const onSave = () => Alert.alert("Saved", "Saved to your history");
@@ -114,35 +137,39 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   // we don't make a wasted POST, but on a 402 from the server we still route
   // to Paywall as a fallback.
   const onWatch = async () => {
-    if (watching) return;
+    if (creatingWatch) return;
+    // If already watching, tapping the button takes the user to the Watch tab
+    // — much better affordance than a no-op or "are you sure" prompt.
+    if (isWatched) {
+      navigation.navigate("Watch");
+      return;
+    }
     if (!isPro) {
       navigation.navigate("Paywall");
       return;
     }
-    setWatching(true);
+    if (!targetUrl) {
+      Alert.alert(
+        "Can't watch this",
+        "Image-only scans without an extracted URL can't be watched yet.",
+      );
+      return;
+    }
+    setCreatingWatch(true);
     try {
-      const target =
-        result.input?.kind === "url" ? (result.input.url ?? "") : "";
-      if (!target) {
-        Alert.alert(
-          "Can't watch this",
-          "Image-only scans without an extracted URL can't be watched yet.",
-        );
-        return;
-      }
       await createWatch({
-        target,
+        target: targetUrl,
         // Label shown on the Watch tab list. The synthesizer's summary is too
         // long; the URL is too noisy. Until we extract product names, use the
         // domain + first path segment as a readable handle.
-        label: shortLabel(target),
+        label: shortLabel(targetUrl),
         thumbnailUrl: result.thumbnail_url ?? null,
         response: result,
       });
-      Alert.alert(
-        "Watching",
-        "Sus will re-check this listing every day and alert you if the verdict changes.",
-      );
+      // Visible inline state change IS the confirmation — Alert.alert on web
+      // is a small dismissable dialog that's easy to miss, so we lean on the
+      // button itself flipping to "Watching" with a check icon.
+      setIsWatched(true);
     } catch (err) {
       if (err instanceof ProRequiredError) {
         navigation.navigate("Paywall");
@@ -150,7 +177,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       }
       Alert.alert("Couldn't start watch", (err as Error).message);
     } finally {
-      setWatching(false);
+      setCreatingWatch(false);
     }
   };
 
@@ -296,11 +323,15 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
             tone="neutral"
           />
           <ActionButton
-            label="Watch"
-            icon="visibility"
+            label={isWatched ? "Watching" : creatingWatch ? "Saving…" : "Watch"}
+            icon={isWatched ? "check-circle" : "visibility"}
             onPress={onWatch}
             tone="primary"
-            proBadge={!isPro}
+            proBadge={!isPro && !isWatched}
+            // Visually flip to a filled "active" treatment once added so the
+            // user sees the state without needing the alert dialog.
+            active={isWatched}
+            disabled={creatingWatch}
           />
         </View>
 
@@ -337,36 +368,47 @@ function ActionButton({
   onPress,
   tone,
   proBadge,
+  active,
+  disabled,
 }: {
   label: string;
   icon: keyof typeof MaterialIcons.glyphMap;
   onPress: () => void;
   tone: "neutral" | "primary";
   proBadge?: boolean;
+  active?: boolean;
+  disabled?: boolean;
 }) {
   const isPrimary = tone === "primary";
+  // Active = the action is currently in its "on" state (e.g. Watching). Uses
+  // the Looks Legit green so a successful Watch toggle reads visually as
+  // "yes, this is now on" without needing an alert dialog.
+  const bg = active
+    ? colors.legitContainer
+    : isPrimary
+      ? colors.primaryContainer
+      : colors.surfaceContainerHighest;
+  const fg = active
+    ? colors.onLegitContainer
+    : isPrimary
+      ? colors.onPrimary
+      : colors.primary;
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
       style={({ pressed }) => [
         styles.actionBtn,
         {
-          backgroundColor: isPrimary
-            ? colors.primaryContainer
-            : colors.surfaceContainerHighest,
-          opacity: pressed ? 0.85 : 1,
+          backgroundColor: bg,
+          opacity: disabled ? 0.6 : pressed ? 0.85 : 1,
         },
       ]}
     >
-      <MaterialIcons
-        name={icon}
-        size={22}
-        color={isPrimary ? colors.onPrimary : colors.primary}
-      />
+      <MaterialIcons name={icon} size={22} color={fg} />
       <Text
         style={[
           styles.actionLabel,
-          { color: isPrimary ? colors.onPrimary : colors.text },
+          { color: active ? colors.onLegitContainer : isPrimary ? colors.onPrimary : colors.text },
         ]}
       >
         {label}

@@ -14,7 +14,13 @@ import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
-import { fetchQuota, fetchRecentScans, mockState, type RecentScan } from "../store";
+import {
+  fetchQuota,
+  fetchRecentScans,
+  fetchWatches,
+  mockState,
+  type RecentScan,
+} from "../store";
 import {
   colors,
   elevation,
@@ -28,17 +34,23 @@ const HISTORY_LIMIT = 50;
 
 export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   const [scans, setScans] = useState<RecentScan[]>([]);
+  // Set of target URLs the user is currently watching — used to render the
+  // small eye indicator on each history row that's also being monitored.
+  // Built once on load; the badge is informational only (tap behaves the same).
+  const [watchedTargets, setWatchedTargets] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
 
   const load = useCallback(async () => {
-    const [rows, quota] = await Promise.all([
+    const [rows, quota, watches] = await Promise.all([
       fetchRecentScans(HISTORY_LIMIT),
       fetchQuota(),
+      fetchWatches(),
     ]);
     setScans(rows);
     if (quota) setScansLeft(quota.scansLeft);
+    setWatchedTargets(new Set(watches.map((w) => w.target)));
     setLoading(false);
     setRefreshing(false);
   }, []);
@@ -107,29 +119,46 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
           contentContainerStyle={styles.list}
           onRefresh={onRefresh}
           refreshing={refreshing}
-          renderItem={({ item }) => (
-            <Pressable
-              onPress={() => openScan(item)}
-              style={({ pressed }) => [
-                styles.row,
-                { opacity: pressed ? 0.85 : 1 },
-              ]}
-            >
-              <ScanThumbnail
-                thumbnailUrl={item.thumbnailUrl}
-                url={item.product_name}
-              />
-              <View style={styles.rowBody}>
-                <Text style={styles.rowTitle} numberOfLines={1}>
-                  {item.product_name}
-                </Text>
-                <Text style={styles.rowMeta}>
-                  {formatRelativeTime(item.scanned_at)}
-                </Text>
-              </View>
-              <VerdictBadge verdict={item.verdict} size="sm" />
-            </Pressable>
-          )}
+          renderItem={({ item }) => {
+            const isWatched = watchedTargets.has(item.product_name);
+            return (
+              <Pressable
+                onPress={() => openScan(item)}
+                style={({ pressed }) => [
+                  styles.row,
+                  { opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <ScanThumbnail
+                  thumbnailUrl={item.thumbnailUrl}
+                  url={item.product_name}
+                />
+                <View style={styles.rowBody}>
+                  <View style={styles.rowTitleRow}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>
+                      {item.product_name}
+                    </Text>
+                    {isWatched && (
+                      // Compact eye glyph signals "this scan is also on your
+                      // Watch list" — no action, just status. Same icon family
+                      // the Watch tab + Verdict button use so the link is
+                      // visually consistent across screens.
+                      <MaterialIcons
+                        name="visibility"
+                        size={14}
+                        color={colors.primary}
+                        style={styles.watchedIcon}
+                      />
+                    )}
+                  </View>
+                  <Text style={styles.rowMeta}>
+                    {formatRelativeTime(item.scanned_at)}
+                  </Text>
+                </View>
+                <VerdictBadge verdict={item.verdict} size="sm" />
+              </Pressable>
+            );
+          }}
         />
       )}
 
@@ -199,10 +228,19 @@ const styles = StyleSheet.create({
     ...elevation.card,
   },
   rowBody: { flex: 1, paddingVertical: spacing.md, gap: 2 },
+  rowTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   rowTitle: {
     ...typography.bodyMd,
     color: colors.text,
     fontWeight: "400", fontFamily: "Inter_400Regular",
+    flexShrink: 1,
+  },
+  watchedIcon: {
+    opacity: 0.85,
   },
   rowMeta: {
     ...typography.caption,
