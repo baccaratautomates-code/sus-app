@@ -76,6 +76,42 @@ export interface RecentScan {
   thumbnailUrl: string | null;
 }
 
+// Pro-tier Watch feature row. Server re-runs the scan against `target` every
+// ~24h; if the new verdict is materially worse, `pendingAlert` gets populated
+// and the user sees a notification dot on the Watch tab.
+export interface WatchAlert {
+  old_verdict: Verdict;
+  new_verdict: Verdict;
+  old_trust_score: number;
+  new_trust_score: number;
+  new_red_flags: string[];
+  summary: string;
+  checked_at: string;
+}
+
+export interface Watch {
+  id: string;
+  target: string;
+  label: string;
+  thumbnailUrl: string | null;
+  lastVerdict: Verdict;
+  lastTrustScore: number;
+  lastResponse: ScanResponse;
+  createdAt: string;
+  lastCheckedAt: string;
+  nextCheckAt: string;
+  pendingAlert: WatchAlert | null;
+}
+
+// Thrown by createWatch when the user isn't Pro. Mobile catches this and
+// navigates to Paywall instead of showing a generic error.
+export class ProRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ProRequiredError";
+  }
+}
+
 // Shared in-memory state for the prototype. Mutated by fetchQuota() after each
 // scan / on focus, read by HomeScreen / VerdictScreen / HistoryScreen for the
 // "X scans left" pill. scansLeft = -1 is the unlimited sentinel (Pro users or
@@ -188,6 +224,109 @@ export async function requestScan(
   if (!res.ok) await throwFromResponse(res);
 
   return (await res.json()) as ScanResponse;
+}
+
+// GET /me/watches — list current user's active watches, newest first.
+// Returns [] on any failure (no session, network, server) so the Watch tab
+// can render an empty state without a hard error.
+export async function fetchWatches(): Promise<Watch[]> {
+  try {
+    const userId = await currentUserId();
+    if (!userId) return [];
+    const res = await fetch(
+      `${API_BASE}/me/watches?user_id=${encodeURIComponent(userId)}`,
+    );
+    if (!res.ok) return [];
+    const body = (await res.json()) as {
+      watches?: Array<{
+        id: string;
+        target: string;
+        label: string;
+        thumbnail_url: string | null;
+        last_verdict: Verdict;
+        last_trust_score: number;
+        last_response: ScanResponse;
+        created_at: string;
+        last_checked_at: string;
+        next_check_at: string;
+        pending_alert: WatchAlert | null;
+      }>;
+    };
+    return (body.watches ?? []).map((w) => ({
+      id: w.id,
+      target: w.target,
+      label: w.label,
+      thumbnailUrl: w.thumbnail_url,
+      lastVerdict: w.last_verdict,
+      lastTrustScore: w.last_trust_score,
+      lastResponse: w.last_response,
+      createdAt: w.created_at,
+      lastCheckedAt: w.last_checked_at,
+      nextCheckAt: w.next_check_at,
+      pendingAlert: w.pending_alert,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// POST /me/watches — start watching a listing. Server-side gates on Pro
+// entitlement. Throws ProRequiredError on 402 so the Verdict screen can
+// route to Paywall; throws a generic Error on other failures.
+export async function createWatch(args: {
+  target: string;
+  label: string;
+  thumbnailUrl: string | null;
+  response: ScanResponse;
+}): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Not signed in");
+  const res = await fetch(`${API_BASE}/me/watches`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      user_id: userId,
+      target: args.target,
+      label: args.label,
+      thumbnail_url: args.thumbnailUrl,
+      last_verdict: args.response.verdict,
+      last_trust_score: args.response.trust_score,
+      last_response: args.response,
+    }),
+  });
+  if (res.status === 402) {
+    const body = await res.json().catch(() => ({}));
+    throw new ProRequiredError(
+      (body as { message?: string }).message ?? "Watch is a Pro feature.",
+    );
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Server returned ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
+// DELETE /me/watches/:id — stop watching. Silent no-op on any failure
+// (the Watch screen optimistically removes the row; if the server didn't
+// actually delete it, the next fetchWatches() will bring it back).
+export async function deleteWatch(id: string): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) return;
+  await fetch(
+    `${API_BASE}/me/watches/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  ).catch(() => {});
+}
+
+// POST /me/watches/:id/dismiss — clear the staged pending_alert. Used when
+// the user views or acknowledges a Watch notification. Silent on failure.
+export async function dismissWatchAlert(id: string): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) return;
+  await fetch(
+    `${API_BASE}/me/watches/${encodeURIComponent(id)}/dismiss?user_id=${encodeURIComponent(userId)}`,
+    { method: "POST" },
+  ).catch(() => {});
 }
 
 // Image scan request. Image is sent as a base64-encoded string in the JSON

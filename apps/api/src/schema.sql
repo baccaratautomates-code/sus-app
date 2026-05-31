@@ -44,6 +44,61 @@ ALTER TABLE scans ADD COLUMN IF NOT EXISTS thumbnail_url TEXT;
 CREATE INDEX IF NOT EXISTS scans_user_created_idx
   ON scans (user_id, created_at DESC);
 
+-- PRD §6.4 Pro Watch feature. Each row is one URL the user is monitoring;
+-- the cron re-runs the scan every ~24h and diffs the new verdict against
+-- last_response. If the verdict downgrades (Looks Legit → Suspicious, any →
+-- High Risk) or the trust score drops by ≥10, an alert is staged on the
+-- watch row itself (pending_alert) and the mobile client surfaces it on the
+-- Watch tab. One row per (user_id, target) — re-watching is a no-op.
+CREATE TABLE IF NOT EXISTS watches (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- Original URL that was scanned. Cron re-runs the scan against this exact
+  -- target, going through the same normalize → cache → fan-out path as a
+  -- fresh user-initiated scan.
+  target            TEXT NOT NULL,
+  -- Human-readable label for the Watch list UI (Shopee product name or URL).
+  -- Captured at watch-creation time so the mobile client doesn't have to
+  -- re-resolve it for the list view.
+  label             TEXT NOT NULL,
+  -- og:image at watch-creation time (same URL as scans.thumbnail_url).
+  -- Refreshed when the watch is re-scanned.
+  thumbnail_url     TEXT,
+  -- Last known verdict + trust_score. The diff is computed against these.
+  last_verdict      TEXT NOT NULL,
+  last_trust_score  INTEGER NOT NULL,
+  -- Full ScanResponse from the last check, used to diff red_flags/sources.
+  last_response     JSONB NOT NULL,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_checked_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  -- When the cron should next pick this watch up. The cron query is
+  -- WHERE next_check_at <= now(), so bumping this to now()+24h after each
+  -- check naturally rate-limits to once per day.
+  next_check_at     TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '24 hours'),
+  -- Staged alert payload when the most recent re-check found a worse verdict.
+  -- Null while everything's fine; populated with {old_verdict, new_verdict,
+  -- old_score, new_score, summary} when the cron flags a downgrade. Cleared
+  -- when the user views it in the mobile app.
+  pending_alert     JSONB,
+  alerted_at        TIMESTAMPTZ,
+  UNIQUE (user_id, target)
+);
+
+CREATE INDEX IF NOT EXISTS watches_user_idx
+  ON watches (user_id, created_at DESC);
+
+-- Cron picks up rows due for re-check. WHERE-on-timestamp + LIMIT works
+-- without an index up to ~10k rows, but this is cheap insurance.
+CREATE INDEX IF NOT EXISTS watches_next_check_idx
+  ON watches (next_check_at)
+  WHERE pending_alert IS NULL;
+
+ALTER TABLE watches ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS watches_select_own ON watches;
+CREATE POLICY watches_select_own ON watches
+  FOR SELECT TO authenticated
+  USING (auth.uid()::text = user_id);
+
 -- Row-Level Security (defense in depth). The Supabase anon key lives in the
 -- mobile JS bundle and is publicly readable; without these policies anyone
 -- could lift it and `supabase.from('scans').select()` to dump the table.

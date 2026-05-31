@@ -16,7 +16,12 @@ import { BrandMark } from "../components/BrandMark";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
-import { fetchQuota, mockState } from "../store";
+import {
+  ProRequiredError,
+  createWatch,
+  fetchQuota,
+  mockState,
+} from "../store";
 import {
   DISCLAIMER,
   colors,
@@ -100,11 +105,53 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       ? "Green flags"
       : "";
 
+  const [watching, setWatching] = useState(false);
+
   const onShare = () => Alert.alert("Share", "Share verdict — coming soon");
   const onSave = () => Alert.alert("Saved", "Saved to your history");
-  const onWatch = () => {
-    if (!isPro) navigation.navigate("Paywall");
-    else Alert.alert("Watching", "We'll alert you if new red flags emerge");
+  // Watch is server-Pro-gated (canAccessProFeatures includes BYPASS_USER_IDS),
+  // so we let the API decide. Fast-path to Paywall for known non-Pro users so
+  // we don't make a wasted POST, but on a 402 from the server we still route
+  // to Paywall as a fallback.
+  const onWatch = async () => {
+    if (watching) return;
+    if (!isPro) {
+      navigation.navigate("Paywall");
+      return;
+    }
+    setWatching(true);
+    try {
+      const target =
+        result.input?.kind === "url" ? (result.input.url ?? "") : "";
+      if (!target) {
+        Alert.alert(
+          "Can't watch this",
+          "Image-only scans without an extracted URL can't be watched yet.",
+        );
+        return;
+      }
+      await createWatch({
+        target,
+        // Label shown on the Watch tab list. The synthesizer's summary is too
+        // long; the URL is too noisy. Until we extract product names, use the
+        // domain + first path segment as a readable handle.
+        label: shortLabel(target),
+        thumbnailUrl: result.thumbnail_url ?? null,
+        response: result,
+      });
+      Alert.alert(
+        "Watching",
+        "Sus will re-check this listing every day and alert you if the verdict changes.",
+      );
+    } catch (err) {
+      if (err instanceof ProRequiredError) {
+        navigation.navigate("Paywall");
+        return;
+      }
+      Alert.alert("Couldn't start watch", (err as Error).message);
+    } finally {
+      setWatching(false);
+    }
   };
 
   const confLvl = confidenceLevel(result.confidence ?? "Low");
@@ -264,6 +311,24 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
       <BottomNav active={from} />
     </SafeAreaView>
   );
+}
+
+// Compact readable label from a URL: host + first path segment when short.
+// "https://shopee.ph/dreame-official-store-i.123.456" → "dreame-official-store"
+// Falls back to the host alone when the path is empty or too long.
+function shortLabel(target: string): string {
+  try {
+    const u = new URL(target);
+    const seg = u.pathname.split("/").filter(Boolean)[0];
+    if (seg && seg.length < 60) {
+      // Strip Shopee's "-i.<shop>.<item>" suffix when present so the label is
+      // just the seller slug.
+      return seg.replace(/-i\.\d+\.\d+$/, "");
+    }
+    return u.host;
+  } catch {
+    return target.slice(0, 60);
+  }
 }
 
 function ActionButton({

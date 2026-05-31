@@ -46,6 +46,10 @@ export function BottomNav({ active }: Props) {
       navigation.navigate("History");
       return;
     }
+    if (tab === "watch") {
+      navigation.navigate("Watch");
+      return;
+    }
     if (tab === "settings") {
       navigation.navigate("Settings");
       return;

@@ -105,3 +105,17 @@ export async function consumeQuota(userId: string): Promise<void> {
     WHERE id = ${userId}
   `;
 }
+
+/**
+ * Gate for Pro-only features (Watch, branded share cards, priority scans).
+ * True when the user is a real paying Pro subscriber OR is on the bypass
+ * list (test accounts). Bypass users get the full Pro experience so feature
+ * QA doesn't require flipping is_pro in Supabase and later un-doing it.
+ */
+export async function canAccessProFeatures(userId: string): Promise<boolean> {
+  if (QUOTA_BYPASS_USERS.has(userId)) return true;
+  const rows = (await sql`
+    SELECT is_pro FROM users WHERE id = ${userId}
+  `) as Array<{ is_pro: boolean }>;
+  return rows[0]?.is_pro === true;
+}

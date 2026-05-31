@@ -10,9 +10,10 @@ import {
   ocrImage,
   unsupportedMarketplaceMessage,
 } from "./ocr";
-import { checkQuota, consumeQuota } from "./quota";
+import { canAccessProFeatures, checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
 import { fetchThumbnail } from "./thumbnail";
+import { startWatchCron } from "./watch";
 import { handleRevenueCatEvent } from "./webhook";
 
 // Run schema bootstrap at module load. If the DB is unreachable we log loudly
@@ -22,6 +23,12 @@ bootstrapSchema().catch((err) => {
   console.error(`[startup] schema bootstrap failed: ${(err as Error).message}`);
   console.error(`[startup] continuing without DB — scans will not persist, /me/scans will return errors`);
 });
+
+// PRD §6.4 Watch cron — periodic re-scan of saved listings with verdict-
+// downgrade alerts. Starts after a short delay so the schema bootstrap has
+// time to land. Single-instance only; if we ever horizontally scale the API
+// across multiple Railway replicas this needs a leader-election lock.
+startWatchCron();
 
 const app = new Hono();
 
@@ -134,6 +141,216 @@ app.delete("/me/account", async (c) => {
   } catch (err) {
     console.error(`[me/account] delete failed user=${userId}: ${(err as Error).message}`);
     return c.json({ error: "failed to delete account" }, 500);
+  }
+});
+
+// PRD §6.4 Watch feature endpoints. Gated on Pro entitlement — bypass users
+// (test accounts) also get access via canAccessProFeatures. The actual cron
+// re-check + diff logic lives in watch.ts; these endpoints just CRUD rows.
+
+// List the signed-in user's active watches, newest first. Returns each watch
+// with its label, thumbnail, last-known verdict, and the staged pending_alert
+// (if any). Mobile renders this on the Watch tab.
+app.get("/me/watches", async (c) => {
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+
+  try {
+    const rows = (await sql`
+      SELECT id, target, label, thumbnail_url,
+             last_verdict, last_trust_score, last_response,
+             created_at, last_checked_at, next_check_at,
+             pending_alert, alerted_at
+      FROM watches
+      WHERE user_id = ${userId}
+      ORDER BY created_at DESC
+    `) as Array<{
+      id: string;
+      target: string;
+      label: string;
+      thumbnail_url: string | null;
+      last_verdict: string;
+      last_trust_score: number;
+      last_response: unknown;
+      created_at: Date;
+      last_checked_at: Date;
+      next_check_at: Date;
+      pending_alert: unknown;
+      alerted_at: Date | null;
+    }>;
+
+    return c.json({
+      watches: rows.map((r) => ({
+        id: r.id,
+        target: r.target,
+        label: r.label,
+        thumbnail_url: r.thumbnail_url,
+        last_verdict: r.last_verdict,
+        last_trust_score: r.last_trust_score,
+        // Bun.SQL returns JSONB as strings — parse defensively (same pattern
+        // as /me/scans). The response shape is the original ScanResponse.
+        last_response: typeof r.last_response === "string"
+          ? JSON.parse(r.last_response)
+          : r.last_response,
+        created_at: r.created_at.toISOString(),
+        last_checked_at: r.last_checked_at.toISOString(),
+        next_check_at: r.next_check_at.toISOString(),
+        pending_alert: r.pending_alert
+          ? typeof r.pending_alert === "string"
+            ? JSON.parse(r.pending_alert)
+            : r.pending_alert
+          : null,
+        alerted_at: r.alerted_at?.toISOString() ?? null,
+      })),
+    });
+  } catch (err) {
+    console.error(`[me/watches] query failed user=${userId}: ${(err as Error).message}`);
+    return c.json({ error: "failed to load watches" }, 500);
+  }
+});
+
+// Add a watch. Body shape:
+//   { user_id, target, label, thumbnail_url?, last_verdict, last_trust_score, last_response }
+// Pro-gated (or bypass). Idempotent via UNIQUE (user_id, target) — re-watching
+// returns the existing row's id with a 200, doesn't 409.
+app.post("/me/watches", async (c) => {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "invalid json body" }, 400);
+  }
+  const o = body as Record<string, unknown>;
+
+  if (typeof o.user_id !== "string" || !o.user_id) {
+    return c.json({ error: "user_id required" }, 400);
+  }
+  if (typeof o.target !== "string" || !o.target) {
+    return c.json({ error: "target required" }, 400);
+  }
+  if (typeof o.label !== "string" || !o.label) {
+    return c.json({ error: "label required" }, 400);
+  }
+  if (typeof o.last_verdict !== "string") {
+    return c.json({ error: "last_verdict required" }, 400);
+  }
+  if (typeof o.last_trust_score !== "number") {
+    return c.json({ error: "last_trust_score required" }, 400);
+  }
+  if (!o.last_response || typeof o.last_response !== "object") {
+    return c.json({ error: "last_response required" }, 400);
+  }
+
+  const userId = o.user_id;
+  const target = o.target;
+  const label = o.label;
+  const thumbnailUrl = typeof o.thumbnail_url === "string" ? o.thumbnail_url : null;
+  const lastVerdict = o.last_verdict;
+  const lastTrustScore = o.last_trust_score;
+  const lastResponse = o.last_response;
+
+  try {
+    const allowed = await canAccessProFeatures(userId);
+    if (!allowed) {
+      return c.json({ error: "pro_required", message: "Watch is a Pro feature." }, 402);
+    }
+
+    // ON CONFLICT updates label/thumbnail in case the seller renamed
+    // themselves or the og:image changed; leaves last_verdict / pending_alert
+    // alone so we don't lose alert state on a re-add.
+    const id = crypto.randomUUID();
+    const rows = (await sql`
+      INSERT INTO watches (id, user_id, target, label, thumbnail_url, last_verdict, last_trust_score, last_response)
+      VALUES (
+        ${id}, ${userId}, ${target}, ${label}, ${thumbnailUrl},
+        ${lastVerdict}, ${lastTrustScore}, ${JSON.stringify(lastResponse)}::jsonb
+      )
+      ON CONFLICT (user_id, target) DO UPDATE
+        SET label = EXCLUDED.label,
+            thumbnail_url = EXCLUDED.thumbnail_url
+      RETURNING id, target, label, thumbnail_url, last_verdict, last_trust_score,
+                created_at, last_checked_at, next_check_at
+    `) as Array<{
+      id: string;
+      target: string;
+      label: string;
+      thumbnail_url: string | null;
+      last_verdict: string;
+      last_trust_score: number;
+      created_at: Date;
+      last_checked_at: Date;
+      next_check_at: Date;
+    }>;
+
+    const w = rows[0];
+    console.log(`[me/watches] created/updated user=${userId} target=${target} id=${w.id}`);
+    return c.json({
+      watch: {
+        id: w.id,
+        target: w.target,
+        label: w.label,
+        thumbnail_url: w.thumbnail_url,
+        last_verdict: w.last_verdict,
+        last_trust_score: w.last_trust_score,
+        created_at: w.created_at.toISOString(),
+        last_checked_at: w.last_checked_at.toISOString(),
+        next_check_at: w.next_check_at.toISOString(),
+      },
+    });
+  } catch (err) {
+    console.error(`[me/watches POST] failed user=${userId} target=${target}: ${(err as Error).message}`);
+    return c.json({ error: "failed to create watch" }, 500);
+  }
+});
+
+// Stop watching. Returns 204 on success, 404 if the watch isn't found OR
+// belongs to a different user (don't leak existence).
+app.delete("/me/watches/:id", async (c) => {
+  const id = c.req.param("id");
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+  if (!id) return c.json({ error: "id required" }, 400);
+
+  try {
+    const rows = (await sql`
+      DELETE FROM watches
+      WHERE id = ${id} AND user_id = ${userId}
+      RETURNING id
+    `) as Array<{ id: string }>;
+    if (rows.length === 0) {
+      return c.json({ error: "not found" }, 404);
+    }
+    console.log(`[me/watches] deleted user=${userId} id=${id}`);
+    return c.body(null, 204);
+  } catch (err) {
+    console.error(`[me/watches DELETE] failed user=${userId} id=${id}: ${(err as Error).message}`);
+    return c.json({ error: "failed to delete watch" }, 500);
+  }
+});
+
+// Dismiss a pending alert on a watch — clears pending_alert + alerted_at so
+// the row goes back to silent monitoring. The watch itself stays active;
+// only the staged notification is cleared.
+app.post("/me/watches/:id/dismiss", async (c) => {
+  const id = c.req.param("id");
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+  if (!id) return c.json({ error: "id required" }, 400);
+
+  try {
+    const rows = (await sql`
+      UPDATE watches
+      SET pending_alert = NULL, alerted_at = NULL
+      WHERE id = ${id} AND user_id = ${userId}
+      RETURNING id
+    `) as Array<{ id: string }>;
+    if (rows.length === 0) {
+      return c.json({ error: "not found" }, 404);
+    }
+    return c.json({ ok: true });
+  } catch (err) {
+    console.error(`[me/watches dismiss] failed user=${userId} id=${id}: ${(err as Error).message}`);
+    return c.json({ error: "failed to dismiss alert" }, 500);
   }
 });
 
