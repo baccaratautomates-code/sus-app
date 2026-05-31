@@ -90,8 +90,9 @@ function Root() {
     }
   }, [user?.id]);
 
-  // Block render until both checks resolve so we don't flash the wrong stack.
-  if (authLoading || onboarded === null) {
+  // Block render until auth resolves. Onboarded loads asynchronously after
+  // sign-in (it's now per-user), so we only wait on it when there IS a session.
+  if (authLoading || (session && onboarded === null)) {
     return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   }
 
@@ -107,16 +108,16 @@ function Root() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {!onboarded ? (
-          <Stack.Screen
-            name="Onboarding"
-            component={OnboardingScreen}
-            options={{ headerShown: false, gestureEnabled: false }}
-          />
-        ) : !session ? (
+        {!session ? (
           <Stack.Screen
             name="Auth"
             component={AuthScreen}
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
+        ) : !onboarded ? (
+          <Stack.Screen
+            name="Onboarding"
+            component={OnboardingScreen}
             options={{ headerShown: false, gestureEnabled: false }}
           />
         ) : (

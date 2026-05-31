@@ -191,7 +191,9 @@ function isStructuralRiskOnly(signals: Signal[]): boolean {
 
 // Upsert the user row, then insert a scan record. Persistence failure is logged
 // but never blocks the user from seeing their verdict — the scan still returns.
-async function persistScan(
+// Exported so the /scan and /scan/image pre-check branches can persist
+// unsupported-marketplace results to History without going through runScan().
+export async function persistScan(
   req: ScanRequest,
   target: string,
   response: ScanResponse,

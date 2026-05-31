@@ -11,7 +11,7 @@ import {
   unsupportedMarketplaceMessage,
 } from "./ocr";
 import { checkQuota, consumeQuota } from "./quota";
-import { runScan } from "./scan";
+import { persistScan, runScan } from "./scan";
 import { handleRevenueCatEvent } from "./webhook";
 
 // Run schema bootstrap at module load. If the DB is unreachable we log loudly
@@ -110,6 +110,8 @@ app.post("/scan", async (c) => {
   // Early-exit for platforms with no usable third-party signals. Matches the
   // /scan/image pre-check so the share-sheet flow (raw FB Marketplace link)
   // gets the same tailored copy instead of a generic 25s-scrape "Not Enough Info".
+  // Still persist to History so the user can see what they tried to scan — the
+  // pre-check skips quota + scrape fan-out, NOT recordkeeping.
   if (parsed.value.kind === "url" && parsed.value.url) {
     const unsupported = detectUnsupportedMarketplace(parsed.value.url);
     if (unsupported) {
@@ -125,6 +127,7 @@ app.post("/scan", async (c) => {
         scanned_at: new Date().toISOString(),
         input: parsed.value,
       };
+      await persistScan(parsed.value, parsed.value.url, response);
       return c.json({ ...response, is_pro: false });
     }
   }
@@ -230,6 +233,7 @@ app.post("/scan/image", async (c) => {
       const unsupported = detectUnsupportedMarketplace(extractedUrl);
       if (unsupported) {
         console.log(`[scan/image] extracted ${extractedUrl} but ${unsupported} not supported — returning tailored Not Enough Info`);
+        const req = { kind: "image" as const, image_id: "uploaded", user_id: userId };
         const response: ScanResponse = {
           trust_score: 0,
           verdict: "Not Enough Info",
@@ -239,8 +243,12 @@ app.post("/scan/image", async (c) => {
           confidence: "Low",
           sources: [],
           scanned_at: new Date().toISOString(),
-          input: { kind: "image", image_id: "uploaded", user_id: userId },
+          input: req,
         };
+        // Persist with the extracted URL as the History label so the row
+        // shows what the user actually scanned (FB Marketplace listing URL),
+        // not the opaque "image:uploaded" cache target.
+        await persistScan(req, extractedUrl, response);
         return c.json({ ...response, is_pro: quotaIsPro });
       }
 
