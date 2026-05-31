@@ -233,7 +233,10 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
                   // /me/scans started returning the JSONB column — fall back
                   // to a re-scan in that case so the row still works.
                   if (scan.response) {
-                    navigation.navigate("Verdict", { result: scan.response });
+                    navigation.navigate("Verdict", {
+                      result: scan.response,
+                      from: "history",
+                    });
                   } else {
                     navigation.navigate("Loading", {
                       kind: "url",

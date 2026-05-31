@@ -55,7 +55,7 @@ function confidenceLevel(c: Confidence): number {
 }
 
 export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdict">) {
-  const { result } = route.params;
+  const { result, from = "scan" } = route.params;
   const { isPro } = usePro();
   const [sourcesOpen, setSourcesOpen] = useState(false);
   // Refresh the quota pill on mount — a scan just completed, so the server's
@@ -238,7 +238,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
         <Text style={styles.disclaimer}>{DISCLAIMER}</Text>
       </ScrollView>
 
-      <BottomNav active="scan" />
+      <BottomNav active={from} />
     </SafeAreaView>
   );
 }

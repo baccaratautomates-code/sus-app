@@ -13,7 +13,14 @@ export type RootStackParamList = {
   Loading:
     | { kind: "url"; url: string }
     | { kind: "image"; image: string };
-  Verdict: { result: ScanResponse };
+  Verdict: {
+    result: ScanResponse;
+    // Which tab the user was on when they opened this Verdict. Drives the
+    // BottomNav active highlight so the user stays oriented — e.g. tapping a
+    // History row keeps the History tab lit instead of falsely activating
+    // Scan. Defaults to "scan" (the post-scan flow) when not provided.
+    from?: "scan" | "history";
+  };
   Paywall: undefined;
 };
 

@@ -63,7 +63,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   // rows persisted before /me/scans started returning the JSONB column.
   const openScan = (scan: RecentScan) => {
     if (scan.response) {
-      navigation.navigate("Verdict", { result: scan.response });
+      navigation.navigate("Verdict", { result: scan.response, from: "history" });
     } else {
       navigation.navigate("Loading", { kind: "url", url: scan.product_name });
     }
