@@ -131,7 +131,6 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   }, [targetUrl]);
 
   const onShare = () => Alert.alert("Share", "Share verdict — coming soon");
-  const onSave = () => Alert.alert("Saved", "Saved to your history");
   // Watch is server-Pro-gated (canAccessProFeatures includes BYPASS_USER_IDS),
   // so we let the API decide. Fast-path to Paywall for known non-Pro users so
   // we don't make a wasted POST, but on a 402 from the server we still route
@@ -308,18 +307,13 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
           )}
         </View>
 
-        {/* Action row */}
+        {/* Action row — Save dropped (every scan auto-saves to History; the
+            button was a stub). Just Share + Watch now. */}
         <View style={styles.actionsRow}>
           <ActionButton
             label="Share"
             icon="share"
             onPress={onShare}
-            tone="neutral"
-          />
-          <ActionButton
-            label="Save"
-            icon="bookmark-outline"
-            onPress={onSave}
             tone="neutral"
           />
           <ActionButton

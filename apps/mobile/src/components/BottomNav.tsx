@@ -14,13 +14,19 @@ interface Tab {
   icon: keyof typeof MaterialIcons.glyphMap;
 }
 
-// "settings" still uses Settings as its label internally but renders the user's
+// Tab order is intentional: Scan (act now) → Watch (live monitoring) →
+// History (past record) → Profile (account). Present-tense tabs are grouped
+// together; the passive ledger comes after. Watch sits second instead of
+// third because it's the Pro upsell — visibility there nudges free users to
+// peek at what's behind it.
+//
+// "settings" still uses Settings as its key internally but renders the user's
 // avatar instead of a gear icon — the IG / TikTok / X pattern that signals
 // "this tab is you" more clearly than a generic icon.
 const TABS: Tab[] = [
   { key: "scan", label: "Scan", icon: "qr-code-scanner" },
-  { key: "history", label: "History", icon: "history" },
   { key: "watch", label: "Watch", icon: "visibility" },
+  { key: "history", label: "History", icon: "history" },
   { key: "settings", label: "Profile", icon: "settings" },
 ];
 
