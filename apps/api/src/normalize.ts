@@ -189,6 +189,25 @@ function parseTiktokShop(url: URL, domain: string): NormalizedInput | null {
     domain === "vt.tiktok.com"; // shortener
   if (!isTiktokDomain) return null;
 
+  // Shop product URLs from the shop-XX.tiktok.com subdomain (the dedicated shop
+  // surface — e.g. shop-ph.tiktok.com/view/product/<numeric_id>, sometimes also
+  // shop.tiktok.com/...). Product ID is the trailing numeric segment after
+  // /view/product/ or /product/. We extract it as item_id so the product
+  // scraper can fetch it; seller @username isn't in the URL so shop_id is null
+  // until the scraper resolves it from the page body.
+  const host = url.host.toLowerCase();
+  const isShopSubdomain = host.startsWith("shop-") || host.startsWith("shop.");
+  const productPathMatch = url.pathname.match(/\/(?:view\/)?product\/(\d+)/i);
+  if (isShopSubdomain && productPathMatch) {
+    return {
+      url: url.toString(),
+      domain,
+      marketplace: "tiktok-shop",
+      shop_id: null,
+      item_id: productPathMatch[1],
+    };
+  }
+
   // /@username[/video/<id>]
   const usernameVideo = url.pathname.match(/^\/@([^\/]+)(?:\/video\/(\d+))?/);
   if (usernameVideo) {

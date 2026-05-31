@@ -69,6 +69,20 @@ export async function fetchThumbnail(
     // better than scraping the SPA shell for the same banner.
   }
 
+  // TikTok serves the TikTok Shop brand mark as og:image to bots — a 200x200
+  // black square with white "TikTok Shop" text. Bypass the generic scraper
+  // for TikTok URLs and try to pull the actual product image out of the
+  // inline JSON state blob the page embeds for hydration.
+  if (normalized?.marketplace === "tiktok-shop") {
+    const fromTiktok = await fetchTiktokThumbnail(url);
+    if (fromTiktok) return fromTiktok;
+    // No good product image found — return null instead of falling through
+    // to scrapeOgImage, because we know that path returns the brand mark.
+    // Mobile then degrades to favicon → letter tile, which is uglier but at
+    // least doesn't lie about what the user is looking at.
+    return null;
+  }
+
   return scrapeOgImage(url);
 }
 
@@ -278,6 +292,150 @@ function extractJsonLdProductImage(html: string): string | null {
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null;
+}
+
+// TikTok-specific thumbnail extractor.
+//
+// TikTok Shop product pages embed a JSON state blob at:
+//   <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__" type="application/json">
+// Inside that blob lives the product's image list — usually under a key like
+// `images` or `product_images` on a product node. We don't know the exact path
+// (TikTok rearranges this every couple of months), so we walk the tree
+// looking for the first URL that looks like a TikTok CDN product image:
+// hosts ending in `.tiktokcdn.com` / `.tiktokcdn-us.com`, NOT brand-asset
+// paths like `/static/` or filenames containing `logo`.
+//
+// On failure, returns null and lets the caller fall back to favicon. We
+// deliberately do NOT fall back to og:image — TikTok's og:image is the
+// brand mark and is worse than showing the favicon.
+async function fetchTiktokThumbnail(url: string): Promise<string | null> {
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const res = await fetch(url, {
+      headers: {
+        "User-Agent": BROWSER_UA,
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Upgrade-Insecure-Requests": "1",
+      },
+      signal: controller.signal,
+      redirect: "follow",
+    });
+    if (!res.ok) {
+      console.log(`[thumbnail] tiktok ${url} → HTTP ${res.status}`);
+      return null;
+    }
+
+    // Read up to MAX_BYTES. The universal blob sits inside <body> so we have
+    // to read past <head>; the cap stops us on pathologically large pages.
+    const reader = res.body?.getReader();
+    if (!reader) return null;
+    let total = 0;
+    const decoder = new TextDecoder("utf-8", { fatal: false });
+    let assembled = "";
+    while (total < MAX_BYTES) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      total += value.length;
+      assembled += decoder.decode(value, { stream: true });
+      // Stop early once we've captured both the start of the universal blob
+      // AND a closing </script> tag — that means the blob is in `assembled`
+      // and further reading is wasted bytes.
+      const blobStart = assembled.indexOf("__UNIVERSAL_DATA_FOR_REHYDRATION__");
+      if (blobStart !== -1 && assembled.indexOf("</script>", blobStart) !== -1) {
+        break;
+      }
+    }
+    reader.cancel().catch(() => {});
+
+    const fromBlob = extractTiktokProductImage(assembled);
+    if (fromBlob) {
+      try {
+        const absolute = new URL(fromBlob, res.url || url).toString();
+        console.log(`[thumbnail] tiktok ${url} → ${absolute} (universal-blob)`);
+        return absolute;
+      } catch {
+        return null;
+      }
+    }
+
+    console.log(`[thumbnail] tiktok ${url} → no product image in blob`);
+    return null;
+  } catch (err) {
+    const msg = (err as Error).message;
+    if ((err as Error).name === "AbortError") {
+      console.log(`[thumbnail] tiktok ${url} → timeout (${TIMEOUT_MS}ms)`);
+    } else {
+      console.log(`[thumbnail] tiktok ${url} → fetch error: ${msg}`);
+    }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Walks the universal-data blob looking for the first URL that smells like a
+// TikTok product CDN image. Conservative: skips brand-asset paths.
+function extractTiktokProductImage(html: string): string | null {
+  const m = html.match(
+    /<script[^>]+id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i,
+  );
+  if (!m) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(m[1]);
+  } catch {
+    return null;
+  }
+
+  const candidates: string[] = [];
+  collectImageUrls(parsed, candidates, 0);
+  // First product-CDN URL wins. We prefer the cleanest-looking candidate.
+  for (const candidate of candidates) {
+    if (isTiktokProductImage(candidate)) return candidate;
+  }
+  return null;
+}
+
+function collectImageUrls(node: unknown, out: string[], depth: number): void {
+  if (depth > 12 || out.length > 50) return;
+  if (typeof node === "string") {
+    if (/^https?:\/\/[^"'\s]+\.(?:jpe?g|png|webp|avif)(?:\?|$)/i.test(node) || /tiktokcdn(?:-us)?\.com\//i.test(node)) {
+      out.push(node);
+    }
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const item of node) collectImageUrls(item, out, depth + 1);
+    return;
+  }
+  if (node && typeof node === "object") {
+    for (const value of Object.values(node as Record<string, unknown>)) {
+      collectImageUrls(value, out, depth + 1);
+    }
+  }
+}
+
+function isTiktokProductImage(candidate: string): boolean {
+  const lowered = candidate.toLowerCase();
+  // TikTok CDN-hosted images.
+  if (!/tiktokcdn(?:-us)?\.com\//.test(lowered)) return false;
+  // Brand assets and platform UI graphics live under /static/, /obj/, with
+  // identifiers like "tiktokshop_logo", "default_avatar", or with /ies/ paths
+  // that indicate platform icons rather than seller-uploaded product photos.
+  if (lowered.includes("logo")) return false;
+  if (lowered.includes("default_avatar")) return false;
+  if (lowered.includes("/static/")) return false;
+  if (lowered.includes("placeholder")) return false;
+  return true;
 }
 
 // Tries each meta-name in order and returns the first content value found.

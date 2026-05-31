@@ -19,6 +19,7 @@ import { scamadviserScraper } from "./scrapers/scamadviser";
 import { shopeeListingScraper } from "./scrapers/shopee-listing";
 import { shopeeSellerScraper } from "./scrapers/shopee-seller";
 import { temuListingScraper } from "./scrapers/temu-listing";
+import { tiktokProductScraper } from "./scrapers/tiktok-product";
 import { tiktokShopScraper } from "./scrapers/tiktok-shop";
 import { trustpilotScraper } from "./scrapers/trustpilot";
 import { waybackScraper } from "./scrapers/wayback";
@@ -56,6 +57,7 @@ const SCRAPERS: Record<string, ScraperFn> = {
   "shopee-listing": shopeeListingScraper,
   "shopee-seller": shopeeSellerScraper,
   "temu-listing": temuListingScraper,
+  "tiktok-product": tiktokProductScraper,
   "tiktok-shop": tiktokShopScraper,
   trustpilot: trustpilotScraper,
   wayback: waybackScraper,

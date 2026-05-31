@@ -222,12 +222,25 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
 
           <VerdictBadge verdict={verdict} />
 
-          <View style={styles.scoreRow}>
-            <Text style={[styles.scoreNumber, { color: colors.primary }]}>
-              {result.trust_score ?? 0}
-            </Text>
-            <Text style={styles.scoreOutOf}>/ 100</Text>
-          </View>
+          {/* Hide the trust score on "Not Enough Info." A big purple "0 / 100"
+              reads as "Sus scored this 0% trustworthy" when the actual meaning
+              is "we have no data to score this." Showing a dash keeps the
+              vertical rhythm of the card while making the no-data state
+              visually distinct from a real zero. */}
+          {verdict === "Not Enough Info" ? (
+            <View style={styles.scoreRow}>
+              <Text style={[styles.scoreDash, { color: colors.textMuted }]}>
+                — / 100
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.scoreRow}>
+              <Text style={[styles.scoreNumber, { color: colors.primary }]}>
+                {result.trust_score ?? 0}
+              </Text>
+              <Text style={styles.scoreOutOf}>/ 100</Text>
+            </View>
+          )}
 
           <View style={styles.confidenceRow}>
             <Text style={styles.confidenceLabel}>CONFIDENCE</Text>
@@ -474,6 +487,15 @@ const styles = StyleSheet.create({
   scoreOutOf: {
     ...typography.headlineMd,
     color: colors.textDim,
+  },
+  // Dash variant of the score, shown on "Not Enough Info" so the user reads
+  // "no data" rather than "scored zero." Sized down from the displayScore so
+  // it doesn't draw the eye the way the real score does.
+  scoreDash: {
+    ...typography.headlineLgMobile,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+    letterSpacing: -0.5,
   },
   confidenceRow: {
     flexDirection: "row",
