@@ -352,13 +352,43 @@ function genericFallback(url: string, domain: string): NormalizedInput {
 }
 
 // PRD §1 scopes Sus to *product/seller listings* — TikTok Shop, Shopee, Lazada,
-// FB Marketplace, IG, plus independent dropshipper sites. News / government /
-// social / search domains aren't sellers and shouldn't burn the user's quota
-// returning a generic "domain is legit" verdict that misses the point.
+// FB Marketplace, IG, plus independent dropshipper sites. The gate's job is to
+// reject anything that clearly isn't a product the user is about to buy, before
+// it burns quota and a 25s scrape returning "the domain has a long history" on
+// a news site or someone's Vercel app.
 //
-// The check is intentionally conservative: only obvious non-commerce domains
-// get blocked. Anything ambiguous (unknown TLD, dropshipper-looking site,
-// brand DTC store) still proceeds to the standard scan pipeline.
+// Strategy: instead of trying to enumerate every non-commerce domain
+// (whack-a-mole — new ones appear weekly), require POSITIVE evidence the URL
+// looks like a product page. Specifically:
+//
+//   1. Known marketplace domain (Shopee/Lazada/TikTok/FB/IG/Temu) → scan
+//   2. Explicit non-commerce list (news, search, social, encyclopedias) → gate
+//   3. Institutional TLD (.gov, .edu, .mil) → gate
+//   4. Dev/hosting platform (vercel.app, netlify.app, github.io, etc.) → gate
+//   5. URL has a meaningful path (not just "/" or empty) → scan
+//   6. Otherwise (bare domain, root path, no query) → gate as "homepage"
+//
+// Rule 5 is the concession to PRD line 22 (independent dropshipper sites):
+// any URL with a real path is plausibly a product page on an unknown shop, so
+// we let it through. The only URLs we gate generically are bare-domain inputs
+// like "vercel.app" or "amazon.com" with no path — those are home pages, not
+// listings, and the user almost certainly pasted them by accident.
+
+// Marketplace domains the normalize parsers handle. classifyNonCommerce sees
+// these too (it runs at the API boundary before normalize), so we short-circuit
+// to null on a match so marketplace URLs always pass through.
+const MARKETPLACE_DOMAINS: ReadonlySet<string> = new Set([
+  "shopee.ph",
+  "lazada.com.ph",
+  "tiktok.com",
+  "vt.tiktok.com",
+  "temu.com",
+  "facebook.com",
+  "fb.com",
+  "fb.me",
+  "instagram.com",
+]);
+
 const NON_COMMERCE_DOMAINS: ReadonlySet<string> = new Set([
   // PH news
   "abs-cbn.com",
@@ -395,8 +425,7 @@ const NON_COMMERCE_DOMAINS: ReadonlySet<string> = new Set([
   "yahoo.com",
   "duckduckgo.com",
   "baidu.com",
-  // Social platforms not on our marketplace allowlist (TikTok / FB / IG ARE
-  // allowed — they're listed earlier in the marketplace parser).
+  // Social platforms not on our marketplace allowlist
   "twitter.com",
   "x.com",
   "youtube.com",
@@ -408,13 +437,12 @@ const NON_COMMERCE_DOMAINS: ReadonlySet<string> = new Set([
   "snapchat.com",
   "threads.net",
   "mastodon.social",
-  // Code hosts / dev tools (people occasionally paste these)
+  // Code hosts / dev tools
   "github.com",
   "gitlab.com",
   "stackoverflow.com",
 ]);
 
-// TLD suffixes for institutional sites that are definitionally non-commerce.
 const NON_COMMERCE_TLD_SUFFIXES: readonly string[] = [
   ".gov",
   ".gov.ph",
@@ -428,41 +456,97 @@ const NON_COMMERCE_TLD_SUFFIXES: readonly string[] = [
   ".mil",
 ];
 
-export type NonCommerceCategory = "news" | "social" | "search" | "institutional" | "reference";
+// Hosting / developer platforms. Matched as full domain OR as a suffix
+// (so my-app.vercel.app is gated alongside vercel.app itself — depends on
+// whether tldts treats the platform as a public suffix).
+const DEV_PLATFORM_HOSTS: readonly string[] = [
+  "vercel.app",
+  "netlify.app",
+  "pages.dev",
+  "github.io",
+  "herokuapp.com",
+  "fly.dev",
+  "replit.app",
+  "repl.co",
+  "railway.app",
+  "firebaseapp.com",
+  "web.app",
+  "deno.dev",
+  "workers.dev",
+];
 
-// Returns the category if the URL's domain is on the non-commerce list,
-// otherwise null (meaning "proceed with normal scan"). The category is
-// informational — the rejection message is the same across categories so
-// the user always sees the same "paste a product link" copy.
+// "Meaningful" path = anything beyond bare root. A single product slug like
+// /red-sneakers counts; just "/" doesn't.
+function hasMeaningfulPath(url: URL): boolean {
+  const segments = url.pathname.split("/").filter((s) => s.length > 0);
+  if (segments.length > 0) return true;
+  // Path is bare "/" — check for non-tracking query params. utm_*, fbclid,
+  // gclid, ref are share-tracking junk that doesn't indicate a product page.
+  const meaningful = Array.from(url.searchParams.keys()).filter(
+    (k) =>
+      !k.toLowerCase().startsWith("utm_") &&
+      k.toLowerCase() !== "fbclid" &&
+      k.toLowerCase() !== "gclid" &&
+      k.toLowerCase() !== "ref" &&
+      k.toLowerCase() !== "source",
+  );
+  return meaningful.length > 0;
+}
+
+export type NonCommerceCategory =
+  | "news"
+  | "social"
+  | "search"
+  | "institutional"
+  | "reference"
+  | "dev"
+  | "homepage";
+
+// Returns the gate reason if the URL should be rejected, null if it should
+// proceed to the scan pipeline. Category is informational — the user-facing
+// message is the same regardless ("paste a product link").
 export function classifyNonCommerce(rawUrl: string): NonCommerceCategory | null {
   const trimmed = rawUrl.trim();
   if (!trimmed) return null;
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  let url: URL;
+  try {
+    url = new URL(withScheme);
+  } catch {
+    return null;
+  }
   const domain = getDomain(withScheme, { validHosts: ["localhost"] });
   if (!domain) return null;
+  const lowered = domain.toLowerCase();
 
-  // Marketplaces always win — even though tiktok.com would technically match
-  // "social" if it weren't on our marketplace list, we never want to gate
-  // those out. The normalize parser handles that branch first; this function
-  // is only consulted when the marketplace lookup didn't claim the URL.
+  // 1. Marketplaces always pass through.
+  if (MARKETPLACE_DOMAINS.has(lowered)) return null;
 
-  if (NON_COMMERCE_DOMAINS.has(domain)) {
-    if (domain === "google.com" || domain === "bing.com" || domain === "yahoo.com" || domain === "duckduckgo.com" || domain === "baidu.com") {
-      return "search";
-    }
-    if (domain === "wikipedia.org" || domain === "wikimedia.org" || domain === "britannica.com") {
-      return "reference";
-    }
-    if (domain === "twitter.com" || domain === "x.com" || domain === "youtube.com" || domain === "youtu.be" || domain === "reddit.com" || domain === "linkedin.com" || domain === "pinterest.com" || domain === "tumblr.com" || domain === "snapchat.com" || domain === "threads.net" || domain === "mastodon.social" || domain === "github.com" || domain === "gitlab.com" || domain === "stackoverflow.com") {
-      return "social";
-    }
+  // 2. Explicit non-commerce list.
+  if (NON_COMMERCE_DOMAINS.has(lowered)) {
+    if (lowered === "google.com" || lowered === "bing.com" || lowered === "yahoo.com" || lowered === "duckduckgo.com" || lowered === "baidu.com") return "search";
+    if (lowered === "wikipedia.org" || lowered === "wikimedia.org" || lowered === "britannica.com") return "reference";
+    if (lowered === "twitter.com" || lowered === "x.com" || lowered === "youtube.com" || lowered === "youtu.be" || lowered === "reddit.com" || lowered === "linkedin.com" || lowered === "pinterest.com" || lowered === "tumblr.com" || lowered === "snapchat.com" || lowered === "threads.net" || lowered === "mastodon.social" || lowered === "github.com" || lowered === "gitlab.com" || lowered === "stackoverflow.com") return "social";
     return "news";
   }
 
-  const lowered = domain.toLowerCase();
+  // 3. Institutional TLDs.
   for (const suffix of NON_COMMERCE_TLD_SUFFIXES) {
     if (lowered.endsWith(suffix)) return "institutional";
   }
 
-  return null;
+  // 4. Dev / hosting platforms — matches the platform domain itself AND any
+  // subdomain hosted on it. Regardless of path; nothing hosted on a free
+  // dev-platform domain is a real commerce site we'd want to evaluate.
+  for (const host of DEV_PLATFORM_HOSTS) {
+    if (lowered === host || lowered.endsWith("." + host)) return "dev";
+  }
+
+  // 5. Has a real path (or non-tracking query) → assume product/listing page.
+  if (hasMeaningfulPath(url)) return null;
+
+  // 6. Bare domain or root-only URL → almost certainly a homepage, not a
+  // product listing. Gate.
+  return "homepage";
 }
