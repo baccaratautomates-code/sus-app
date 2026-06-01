@@ -114,6 +114,8 @@ Collected signals are passed to **Claude Haiku** with a structured prompt that r
 
 **Per-scan cost target:** <$0.10 in API + scraping costs.
 
+> **⚠️ Current implementation (as of 2026-06-01):** v1 ships on **Groq `llama-3.1-8b-instant`** rather than Claude Haiku, while we wait on Anthropic billing (workspace balance is $0; "kyle" key exists but is unfunded). Groq's free tier covers prototype traffic with no billing setup, but it is **not the long-term answer** — it has weaker structured-JSON adherence than Haiku and hard rate limits that won't scale to the §7 targets. Swap back to Haiku once the workspace is funded; the synthesis service was built with that swap in mind (one client substitution, prompt unchanged). Until then, treat Groq parse-failures and rate-limit errors as known v1 tax, not bugs to chase.
+
 ### 3.4 Insufficient-data handling
 
 If signal coverage is below a threshold (new seller, no review presence, no scam DB hits, no news mentions): verdict returns **"Not Enough Info"** with a yellow icon — **never** a default "Legit."
@@ -256,7 +258,7 @@ Cut to ensure an 8–10 week launch window:
 - **Mobile (iOS v1, Android v1.1):** React Native or native Swift. Lean toward **React Native** to share the codebase for the Android follow-up and reduce time-to-Android by ~50%.
 - **Backend API:** Bun + Hono (fast, cheap, fits the existing Claude/Bun tooling Kyle already uses) hosted on Cloudflare Workers or Fly.io.
 - **Scraping layer:** A queue-based worker pool (BullMQ or QStash). Each signal scraper is an isolated worker. Concurrent fan-out per scan request.
-- **Synthesis:** Claude Haiku via the Anthropic API, with prompt caching enabled for the system prompt (the structured-output instructions are static — cache them).
+- **Synthesis:** Claude Haiku via the Anthropic API, with prompt caching enabled for the system prompt (the structured-output instructions are static — cache them). **v1 interim:** running on Groq `llama-3.1-8b-instant` pending Anthropic workspace funding — see §3.3 note.
 - **Cache + DB:** Postgres for users/scans/history; Redis for the 7-day URL verdict cache.
 - **Payments:** RevenueCat in front of Apple IAP + Google Play Billing — standard for cross-platform mobile subscription apps.w
 
