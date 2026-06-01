@@ -119,12 +119,18 @@ export async function redditScraper({ id, data }: ScraperInput): Promise<ScrapeR
     },
   ];
 
+  // Per-post weight is intentionally low (0.4) — a single incidental Reddit
+  // mention (e.g. the "Shein.com Ca Fraud from Amazon" post that flagged Shein
+  // on May 28) shouldn't push a 13-year-old brand to Suspicious on its own.
+  // Multiple flagged posts accumulate (up to MAX_FLAGGED_POSTS × 0.4 = 2.0)
+  // which still creates a meaningful signal when the chatter is genuinely
+  // about this seller.
   for (const post of flagged.slice(0, MAX_FLAGGED_POSTS)) {
     if (!post.permalink) continue;
     const match = FLAG_TERMS.exec(`${post.title ?? ""} ${post.selftext ?? ""}`);
     signals.push({
       type: "seller_reputation",
-      weight: 0.9,
+      weight: 0.4,
       detail: `r/${post.subreddit ?? "?"}: "${post.title ?? "(no title)"}" mentions "${match?.[0] ?? "flag term"}".`,
       source: {
         url: `https://www.reddit.com${post.permalink}`,

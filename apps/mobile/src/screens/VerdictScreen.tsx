@@ -460,7 +460,10 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   scroll: {
-    padding: spacing.lg,
+    // Outer horizontal padding tightened from lg → md so the verdict card
+    // doesn't waste screen width on small phones. Bottom keeps xl so the
+    // last element doesn't sit flush against BottomNav.
+    padding: spacing.md,
     paddingBottom: spacing.xl,
     gap: spacing.md,
   },
@@ -473,12 +476,12 @@ const styles = StyleSheet.create({
     ...elevation.card,
   },
   heroWrap: {
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   scoreRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     gap: 4,
   },
   scoreNumber: {
@@ -522,12 +525,12 @@ const styles = StyleSheet.create({
     ...typography.bodyMd,
     color: colors.textMuted,
     textAlign: "center",
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     paddingHorizontal: spacing.sm,
   },
   flagsSection: {
     width: "100%",
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     gap: spacing.sm,
   },
   flagsHeading: {
