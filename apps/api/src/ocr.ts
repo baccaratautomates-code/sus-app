@@ -43,14 +43,42 @@ export async function ocrImage(base64Jpeg: string): Promise<string> {
 //   2. www.<domain>/path (URL bar after autocomplete dropped the scheme)
 //   3. Bare marketplace domain anywhere in the text (e.g. "shopee.ph/abc")
 // Returns null if nothing usable is found — caller responds with Not Enough Info.
+//
+// Defense against OCR overshoot: zero-width characters (U+200B ZWSP, U+200C
+// ZWNJ, U+200D ZWJ, U+FEFF BOM) are NOT matched by \s in JS regexes, so a
+// naïve [^\s,]+ would happily eat past them and capture URL + the share-text
+// that comes after. We saw this in the wild — TikTok Lite share screenshots
+// produced History rows with target = "https://vm.tiktok.com/... This post
+// is shared via TikTok Lite..." because the URL was glued to the message
+// through a zero-width separator. Strip those characters up front, tighten
+// the character class to exclude common natural-language terminators, and
+// validate every candidate with `new URL()` before returning it.
 export function extractUrl(text: string): string | null {
   if (!text) return null;
 
-  const httpMatch = text.match(/https?:\/\/[^\s,]+/i);
-  if (httpMatch) return cleanTrailingPunctuation(httpMatch[0]);
+  // Replace zero-width characters with spaces so they act as URL boundaries
+  // for the regexes below. Operating on a normalized copy keeps the original
+  // OCR text untouched for downstream diagnostics.
+  const cleaned = text.replace(/[​-‍﻿]/g, " ");
 
-  const wwwMatch = text.match(/www\.[a-z0-9.-]+(?:\.[a-z]{2,})+(?:\/[^\s,]*)?/i);
-  if (wwwMatch) return `https://${cleanTrailingPunctuation(wwwMatch[0])}`;
+  // Exclude characters that almost never appear inside product URLs but DO
+  // appear right after them in natural-language text: quotes, brackets,
+  // braces, angle brackets, pipes. (Whitespace and commas are also excluded.)
+  const URL_BODY = /[^\s,"'<>(){}\[\]|]+/.source;
+
+  const httpMatch = cleaned.match(new RegExp(`https?:\\/\\/${URL_BODY}`, "i"));
+  if (httpMatch) {
+    const candidate = cleanTrailingPunctuation(httpMatch[0]);
+    if (isPlausibleProductUrl(candidate)) return candidate;
+  }
+
+  const wwwMatch = cleaned.match(
+    new RegExp(`www\\.[a-z0-9.-]+(?:\\.[a-z]{2,})+(?:\\/${URL_BODY})?`, "i"),
+  );
+  if (wwwMatch) {
+    const candidate = `https://${cleanTrailingPunctuation(wwwMatch[0])}`;
+    if (isPlausibleProductUrl(candidate)) return candidate;
+  }
 
   // Marketplace domains — the URL bar often shows just the host (no scheme,
   // no www) once the user has tapped an autocomplete suggestion. Each branch
@@ -58,12 +86,34 @@ export function extractUrl(text: string): string | null {
   // identifiers when present — without those, the marketplace-specific
   // scrapers can only evaluate the domain and the verdict degrades to
   // Not Enough Info. Listed in rough order of demo relevance (PH-first).
-  const marketplaceMatch = text.match(
-    /\b((?:shopee\.(?:com\.)?ph|lazada\.com\.ph)(?:\/[^\s,]*)?|tiktok\.com\/@?[\w.-]+(?:\/[^\s,]*)?|facebook\.com\/marketplace\/item\/\d+|amazon\.com(?:\.[a-z]{2})?\/[^\s,]+)/i,
+  const marketplaceMatch = cleaned.match(
+    new RegExp(
+      `\\b((?:shopee\\.(?:com\\.)?ph|lazada\\.com\\.ph)(?:\\/${URL_BODY})?|tiktok\\.com\\/@?[\\w.-]+(?:\\/${URL_BODY})?|facebook\\.com\\/marketplace\\/item\\/\\d+|amazon\\.com(?:\\.[a-z]{2})?\\/${URL_BODY})`,
+      "i",
+    ),
   );
-  if (marketplaceMatch) return `https://${cleanTrailingPunctuation(marketplaceMatch[0])}`;
+  if (marketplaceMatch) {
+    const candidate = `https://${cleanTrailingPunctuation(marketplaceMatch[0])}`;
+    if (isPlausibleProductUrl(candidate)) return candidate;
+  }
 
   return null;
+}
+
+// Guards against extracted strings that look URL-shaped but aren't actually
+// parseable, AND against runaway matches that overshoot into surrounding
+// text. Real product URLs are well under 500 chars; longer strings are
+// almost certainly OCR overshoot we should reject rather than scan.
+const MAX_URL_LENGTH = 500;
+
+function isPlausibleProductUrl(candidate: string): boolean {
+  if (candidate.length > MAX_URL_LENGTH) return false;
+  try {
+    const url = new URL(candidate);
+    return Boolean(url.host);
+  } catch {
+    return false;
+  }
 }
 
 // OCR commonly attaches trailing dots, commas, brackets, and zero-width chars
