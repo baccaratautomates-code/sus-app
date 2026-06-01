@@ -156,6 +156,26 @@ export const mockState = {
   recentScans: [] as RecentScan[],
 };
 
+// Short label for the next monthly-quota reset date. PRD §4.1 specifies UTC
+// month boundaries — the API resets in quota.ts using
+// date_trunc('month', now() AT TIME ZONE 'UTC'), so the next reset is always
+// the 1st of the next calendar month in UTC. Displayed under the scans-left
+// pill so free users understand "0 scans left" is temporary, not a paywall
+// trap they have to upgrade out of.
+//
+// Today is excluded by always computing month + 1 — even at 23:59 UTC on the
+// last day of the month we'd say "Resets <next month> 1" rather than
+// "Resets today" (the rollover happens in the next minute either way).
+export function nextQuotaResetLabel(): string {
+  const now = new Date();
+  const nextReset = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
+  );
+  const month = nextReset.toLocaleDateString("en-US", { month: "short" });
+  const day = nextReset.getUTCDate();
+  return `Resets ${month} ${day}`;
+}
+
 // DELETE /me/account — wipes the user's scans, profile row, and auth.users
 // record so the same Google sign-in creates a fresh UUID next time. Throws
 // on any non-2xx so the Settings screen can surface a useful error. Caller

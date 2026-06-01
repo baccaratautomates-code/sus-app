@@ -22,6 +22,7 @@ import {
   fetchQuota,
   fetchWatches,
   mockState,
+  nextQuotaResetLabel,
 } from "../store";
 import {
   DISCLAIMER,
@@ -192,12 +193,22 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
         <BrandMark />
-        <View style={styles.scansPill}>
-          <Text style={styles.scansPillText}>
-            {isUnlimited
-              ? "Unlimited"
-              : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left`}
-          </Text>
+        <View style={styles.quotaBlock}>
+          <View style={styles.scansPill}>
+            <Text style={styles.scansPillText}>
+              {isUnlimited
+                ? "Unlimited"
+                : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left · ${nextQuotaResetLabel()}`}
+            </Text>
+          </View>
+          {!isUnlimited && (
+            <Pressable
+              onPress={() => navigation.navigate("Paywall")}
+              hitSlop={8}
+            >
+              <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -449,8 +460,12 @@ const styles = StyleSheet.create({
     fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
+  quotaBlock: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
   scansPill: {
-    backgroundColor: colors.surfaceContainerLow,
+    backgroundColor: colors.primaryFixed,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
@@ -458,6 +473,13 @@ const styles = StyleSheet.create({
   scansPillText: {
     ...typography.labelMd,
     color: colors.primary,
+  },
+  upgradeLink: {
+    fontSize: 10,
+    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
+    color: colors.primary,
+    letterSpacing: 0.2,
   },
   scroll: {
     // Outer horizontal padding tightened from lg → md so the verdict card

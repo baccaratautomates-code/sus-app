@@ -20,6 +20,7 @@ import {
   fetchQuota,
   fetchRecentScans,
   mockState,
+  nextQuotaResetLabel,
   type RecentScan,
 } from "../store";
 import {
@@ -122,12 +123,22 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <BrandMark />
-        <View style={styles.scansPill}>
-          <Text style={styles.scansPillText}>
-            {isUnlimited
-              ? "Unlimited"
-              : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left`}
-          </Text>
+        <View style={styles.quotaBlock}>
+          <View style={styles.scansPill}>
+            <Text style={styles.scansPillText}>
+              {isUnlimited
+                ? "Unlimited"
+                : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left · ${nextQuotaResetLabel()}`}
+            </Text>
+          </View>
+          {!isUnlimited && (
+            <Pressable
+              onPress={() => navigation.navigate("Paywall")}
+              hitSlop={8}
+            >
+              <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
+            </Pressable>
+          )}
         </View>
       </View>
 
@@ -310,8 +321,18 @@ const styles = StyleSheet.create({
     fontWeight: "900", fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
+  // Wrapper that stacks the pill on top of the reset-date caption. Right-
+  // aligned so the pill stays visually flush with the screen edge.
+  quotaBlock: {
+    alignItems: "flex-end",
+    gap: 4,
+  },
+  // Stronger pill background (primaryFixed = light purple) so the chip
+  // visibly separates from the page background. The previous surfaceContainerLow
+  // tone blended into the page on desktop and read as flat text rather than a
+  // distinct chip.
   scansPill: {
-    backgroundColor: colors.surfaceContainerLow,
+    backgroundColor: colors.primaryFixed,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderRadius: radius.full,
@@ -319,6 +340,17 @@ const styles = StyleSheet.create({
   scansPillText: {
     ...typography.labelMd,
     color: colors.primary,
+  },
+  // Tertiary CTA — smaller and lighter-weight than the pill so the hierarchy
+  // reads as "state (pill, dominant) → action (link, supporting)" instead of
+  // two siblings competing. Keeps primary color so it still registers as
+  // tappable, but the smaller size + medium weight quiets it down.
+  upgradeLink: {
+    fontSize: 10,
+    fontWeight: "500",
+    fontFamily: "Inter_500Medium",
+    color: colors.primary,
+    letterSpacing: 0.2,
   },
   scroll: {
     padding: spacing.lg,
