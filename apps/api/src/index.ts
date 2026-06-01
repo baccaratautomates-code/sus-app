@@ -5,9 +5,11 @@ import type { ScanRequest, ScanResponse } from "@sus/shared";
 import { bootstrapSchema, sql } from "./db";
 import { env } from "./env";
 import {
+  detectScreenshotMarketplace,
   detectUnsupportedMarketplace,
   extractUrl,
   ocrImage,
+  screenshotMarketplaceMessage,
   unsupportedMarketplaceMessage,
 } from "./ocr";
 import { classifyNonCommerce } from "./normalize";
@@ -580,9 +582,17 @@ app.post("/scan/image", async (c) => {
     // No URL extracted. Return Not Enough Info with copy that nudges the user
     // toward a clearer photo or pasting the URL directly. We don't burn quota
     // on this failure — the user got no value out of the scan.
-    const summary = ocrText
-      ? "No product URL in this image. Crop the screenshot so the address bar is visible, or paste the listing URL directly."
-      : "No readable text in this image. Try a clearer photo, or paste the listing URL directly.";
+    //
+    // First try to recognize the marketplace from the OCR'd UI chrome — if we
+    // can tell the user "this is a TikTok Shop screenshot, here's how to share
+    // it" they get a real path forward instead of the generic "crop the
+    // address bar" hint (useless for TikTok Shop, which has no browser).
+    const detectedMarketplace = ocrText ? detectScreenshotMarketplace(ocrText) : null;
+    const summary = detectedMarketplace
+      ? screenshotMarketplaceMessage(detectedMarketplace)
+      : ocrText
+        ? "No product URL in this image. Crop the screenshot so the address bar is visible, or paste the listing URL directly."
+        : "No readable text in this image. Try a clearer photo, or paste the listing URL directly.";
 
     const response: ScanResponse = {
       trust_score: 0,

@@ -143,3 +143,74 @@ export function unsupportedMarketplaceMessage(reason: UnsupportedReason): string
       return "Instagram shop posts can't be checked — there's no public review data Sus can pull. Try a brand website or marketplace listing URL instead, or scroll the seller's tagged posts and DM history before paying.";
   }
 }
+
+// When OCR finds no URL, the screenshot itself often still tells us which
+// marketplace the user was looking at — the UI chrome leaks the brand. We
+// detect that here so the "no URL found" copy can give marketplace-specific
+// recovery instructions instead of the generic "crop the address bar" hint
+// (which is actively wrong for TikTok Shop — it's in-app only, no URL bar).
+//
+// Detection is intentionally loose: OCR is noisy, "Add to basket" can come
+// through as "Add to bsket", so we look for a SET of weak signals and require
+// 2+ matches before classifying. False positives are worse than misses — a
+// wrong marketplace hint in the error copy is more confusing than no hint.
+export type ScreenshotMarketplace = "tiktok-shop" | "shopee" | "lazada";
+
+const TIKTOK_SHOP_MARKERS = [
+  /add to basket/i,
+  /buy now/i,
+  /\bmall\b/i,
+  /shop guarantee/i,
+  /free \d+-?day return/i,
+  /\bsold\b.*\d/i,
+];
+
+const SHOPEE_MARKERS = [
+  /add to cart/i,
+  /shopee/i,
+  /shopee mall/i,
+  /shopee guarantee/i,
+  /preferred seller/i,
+  /cash on delivery/i,
+];
+
+const LAZADA_MARKERS = [
+  /lazada/i,
+  /lazmall/i,
+  /add to cart/i,
+  /buy now/i,
+  /official store/i,
+];
+
+export function detectScreenshotMarketplace(text: string): ScreenshotMarketplace | null {
+  if (!text) return null;
+  const counts: Record<ScreenshotMarketplace, number> = {
+    "tiktok-shop": TIKTOK_SHOP_MARKERS.filter((re) => re.test(text)).length,
+    shopee: SHOPEE_MARKERS.filter((re) => re.test(text)).length,
+    lazada: LAZADA_MARKERS.filter((re) => re.test(text)).length,
+  };
+
+  // Lazada wins outright if the brand name itself is in the OCR — its UI
+  // chrome overlaps heavily with Shopee, so the brand-name match disambiguates.
+  if (/lazada|lazmall/i.test(text)) return "lazada";
+  // Same logic for Shopee — explicit brand name beats generic markers.
+  if (/shopee/i.test(text)) return "shopee";
+
+  // TikTok Shop has no brand text in most product pages, so fall back to
+  // marker count. Threshold of 2 keeps us from misfiring on Shopee/Lazada
+  // screenshots that happen to contain a single shared phrase ("Buy now").
+  if (counts["tiktok-shop"] >= 2) return "tiktok-shop";
+
+  return null;
+}
+
+export function screenshotMarketplaceMessage(marketplace: ScreenshotMarketplace): string {
+  switch (marketplace) {
+    case "tiktok-shop":
+      return "Looks like a TikTok Shop screenshot. TikTok Shop is in-app only — there's no URL bar to crop. Tap the ⋯ menu on the listing → Copy link → paste it into Sus to scan.";
+    case "shopee":
+      return "Looks like a Shopee screenshot. Tap the share icon on the listing → Copy link, or open the listing in a browser and re-screenshot with the address bar visible.";
+    case "lazada":
+      return "Looks like a Lazada screenshot. Tap the share icon on the listing → Copy link, or open the listing in a browser and re-screenshot with the address bar visible.";
+  }
+}
