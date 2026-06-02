@@ -12,7 +12,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
-import { QuotaChip } from "../components/QuotaChip";
 import { ScanCard } from "../components/ScanCard";
 import { SwipeableRow } from "../components/SwipeableRow";
 import { UndoSnackbar } from "../components/UndoSnackbar";
@@ -200,10 +199,6 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         <>
           <View style={styles.header}>
             <Text style={styles.screenTitle}>History</Text>
-            <QuotaChip
-              scansLeft={scansLeft}
-              onUpgrade={() => navigation.navigate("Paywall")}
-            />
           </View>
 
           <View style={styles.filterRow}>

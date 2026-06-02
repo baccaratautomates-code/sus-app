@@ -13,16 +13,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { Confidence, Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
-import { QuotaChip } from "../components/QuotaChip";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
 import {
   ProRequiredError,
   createWatch,
-  fetchQuota,
   fetchWatches,
-  mockState,
 } from "../store";
 import {
   DISCLAIMER,
@@ -66,17 +63,6 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   const { result, from = "scan" } = route.params;
   const { isPro } = usePro();
   const [sourcesOpen, setSourcesOpen] = useState(false);
-  // Refresh the quota pill on mount — a scan just completed, so the server's
-  // count has decremented. Without this the pill keeps the pre-scan number
-  // (or the boot default) until the user navigates Home.
-  const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
-  useEffect(() => {
-    let cancelled = false;
-    fetchQuota().then((q) => {
-      if (!cancelled && q) setScansLeft(q.scansLeft);
-    });
-    return () => { cancelled = true; };
-  }, []);
 
   // Defensive normalization. Old persisted scans (or any payload where the
   // server forgot to parse the JSONB string back to an object) can be missing
@@ -208,10 +194,6 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
         ) : (
           <BrandMark />
         )}
-        <QuotaChip
-          scansLeft={scansLeft}
-          onUpgrade={() => navigation.navigate("Paywall")}
-        />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
