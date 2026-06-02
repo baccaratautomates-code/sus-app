@@ -381,6 +381,32 @@ export async function dismissWatchAlert(id: string): Promise<void> {
   ).catch(() => {});
 }
 
+// DELETE /me/scans/:id — remove a single scan from history. Throws on a real
+// failure so the History screen can revert its optimistic removal and alert.
+// A 404 (already gone) is treated as success.
+export async function deleteScan(id: string): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Not signed in");
+  const res = await fetch(
+    `${API_BASE}/me/scans/${encodeURIComponent(id)}?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok && res.status !== 404) {
+    throw new Error(`Server returned ${res.status}`);
+  }
+}
+
+// DELETE /me/scans — clear the user's entire scan history. Throws on failure.
+export async function clearScans(): Promise<void> {
+  const userId = await currentUserId();
+  if (!userId) throw new Error("Not signed in");
+  const res = await fetch(
+    `${API_BASE}/me/scans?user_id=${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) throw new Error(`Server returned ${res.status}`);
+}
+
 // Image scan request. Image is sent as a base64-encoded string in the JSON
 // body so we don't have to deal with multipart on the Bun side. The backend
 // OCRs the image, extracts any URL or brand text, then runs the standard

@@ -1,9 +1,11 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  FlatList,
+  Alert,
+  Platform,
   Pressable,
+  SectionList,
   StyleSheet,
   Text,
   View,
@@ -15,6 +17,8 @@ import { BrandMark } from "../components/BrandMark";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import {
+  clearScans,
+  deleteScan,
   fetchQuota,
   fetchRecentScans,
   fetchWatches,
@@ -37,11 +41,16 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   const [scans, setScans] = useState<RecentScan[]>([]);
   // Set of target URLs the user is currently watching — used to render the
   // small eye indicator on each history row that's also being monitored.
-  // Built once on load; the badge is informational only (tap behaves the same).
   const [watchedTargets, setWatchedTargets] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [scansLeft, setScansLeft] = useState(mockState.scansLeft);
+
+  // Multi-select state. `selectMode` toggles checkboxes + the contextual action
+  // bar; `selected` holds the ids ticked for deletion.
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [working, setWorking] = useState(false);
 
   const load = useCallback(async () => {
     const [rows, quota, watches] = await Promise.all([
@@ -69,17 +78,95 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     load();
   };
 
-  // Tapping a row is view-only — navigate straight to the stored Verdict.
-  // No re-scrape, no Loading animation, no quota burn, no cache dependency.
-  // History is a record of past results, not a re-run trigger.
-  //
-  // Falls back to re-running the scan if response is missing — handles old
-  // rows persisted before /me/scans started returning the JSONB column.
-  const openScan = (scan: RecentScan) => {
+  // Group scans into relative date buckets for SectionList. The API already
+  // returns rows newest-first, so iterating in order keeps both the section
+  // order and the within-section order correct without re-sorting.
+  const sections = useMemo(() => groupByDate(scans), [scans]);
+
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelected(new Set());
+  };
+
+  const enterSelect = (preselectId?: string) => {
+    setSelectMode(true);
+    setSelected(preselectId ? new Set([preselectId]) : new Set());
+  };
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const allSelected = scans.length > 0 && selected.size === scans.length;
+  const toggleSelectAll = () => {
+    setSelected(allSelected ? new Set() : new Set(scans.map((s) => s.id)));
+  };
+
+  // Tapping a row: in select mode it toggles the checkbox; otherwise it opens
+  // the stored verdict (view-only — no re-scrape, no quota burn).
+  const onRowPress = (scan: RecentScan) => {
+    if (selectMode) {
+      toggle(scan.id);
+      return;
+    }
     if (scan.response) {
       navigation.navigate("Verdict", { result: scan.response, from: "history" });
     } else {
       navigation.navigate("Loading", { kind: "url", url: scan.product_name });
+    }
+  };
+
+  const removeIdsLocally = (ids: Set<string>) => {
+    setScans((prev) => prev.filter((s) => !ids.has(s.id)));
+  };
+
+  const onDeleteSelected = async () => {
+    if (selected.size === 0) return;
+    const n = selected.size;
+    const ok = await confirmDestructive(
+      `Delete ${n} ${n === 1 ? "scan" : "scans"}?`,
+      "This removes them from your history. This can't be undone.",
+    );
+    if (!ok) return;
+    const ids = new Set(selected);
+    // Optimistic: drop them from the list immediately, then sync the server.
+    removeIdsLocally(ids);
+    exitSelect();
+    setWorking(true);
+    try {
+      await Promise.all([...ids].map((id) => deleteScan(id)));
+    } catch {
+      // A delete failed — reload to get the true server state back.
+      await load();
+      notify("Couldn't delete some scans. Please try again.");
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const onClearAll = async () => {
+    if (scans.length === 0) return;
+    const ok = await confirmDestructive(
+      "Clear all history?",
+      `This permanently removes all ${scans.length} scans from your history. This can't be undone.`,
+    );
+    if (!ok) return;
+    const snapshot = scans;
+    setScans([]);
+    exitSelect();
+    setWorking(true);
+    try {
+      await clearScans();
+    } catch {
+      setScans(snapshot); // revert
+      notify("Couldn't clear history. Please try again.");
+    } finally {
+      setWorking(false);
     }
   };
 
@@ -96,15 +183,43 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
             </Text>
           </View>
           {!isUnlimited && (
-            <Pressable
-              onPress={() => navigation.navigate("Paywall")}
-              hitSlop={8}
-            >
+            <Pressable onPress={() => navigation.navigate("Paywall")} hitSlop={8}>
               <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
             </Pressable>
           )}
         </View>
       </View>
+
+      {/* Contextual toolbar: "Select" in normal mode, selection controls in
+          select mode. Only shown when there are scans to act on. */}
+      {!loading && scans.length > 0 && (
+        <View style={styles.toolbar}>
+          {selectMode ? (
+            <>
+              <Pressable onPress={exitSelect} hitSlop={8}>
+                <Text style={styles.toolbarAction}>Cancel</Text>
+              </Pressable>
+              <Text style={styles.toolbarCount}>
+                {selected.size > 0 ? `${selected.size} selected` : "Select items"}
+              </Text>
+              <Pressable onPress={toggleSelectAll} hitSlop={8}>
+                <Text style={styles.toolbarAction}>
+                  {allSelected ? "Deselect all" : "Select all"}
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <>
+              <Text style={styles.toolbarTitle}>
+                {scans.length} {scans.length === 1 ? "scan" : "scans"}
+              </Text>
+              <Pressable onPress={() => enterSelect()} hitSlop={8}>
+                <Text style={styles.toolbarAction}>Select</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.centerWrap}>
@@ -112,11 +227,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         </View>
       ) : scans.length === 0 ? (
         <View style={styles.centerWrap}>
-          <MaterialIcons
-            name="history"
-            size={56}
-            color={colors.textDim}
-          />
+          <MaterialIcons name="history" size={56} color={colors.textDim} />
           <Text style={styles.emptyTitle}>No scans yet</Text>
           <Text style={styles.emptyBody}>
             Paste or share a link from another app to get your first verdict.
@@ -124,22 +235,37 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={scans}
+        <SectionList
+          sections={sections}
           keyExtractor={(s) => s.id}
           contentContainerStyle={styles.list}
-          onRefresh={onRefresh}
+          stickySectionHeadersEnabled={false}
+          onRefresh={selectMode ? undefined : onRefresh}
           refreshing={refreshing}
+          renderSectionHeader={({ section }) => (
+            <Text style={styles.sectionHeader}>{section.title}</Text>
+          )}
           renderItem={({ item }) => {
             const isWatched = watchedTargets.has(item.product_name);
+            const isSelected = selected.has(item.id);
             return (
               <Pressable
-                onPress={() => openScan(item)}
+                onPress={() => onRowPress(item)}
+                onLongPress={() => !selectMode && enterSelect(item.id)}
+                delayLongPress={250}
                 style={({ pressed }) => [
                   styles.row,
+                  isSelected && styles.rowSelected,
                   { opacity: pressed ? 0.85 : 1 },
                 ]}
               >
+                {selectMode && (
+                  <MaterialIcons
+                    name={isSelected ? "check-circle" : "radio-button-unchecked"}
+                    size={22}
+                    color={isSelected ? colors.primary : colors.textDim}
+                  />
+                )}
                 <ScanThumbnail
                   thumbnailUrl={item.thumbnailUrl}
                   url={item.product_name}
@@ -150,10 +276,6 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
                       {item.product_name}
                     </Text>
                     {isWatched && (
-                      // Compact eye glyph signals "this scan is also on your
-                      // Watch list" — no action, just status. Same icon family
-                      // the Watch tab + Verdict button use so the link is
-                      // visually consistent across screens.
                       <MaterialIcons
                         name="visibility"
                         size={14}
@@ -173,9 +295,106 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         />
       )}
 
+      {/* Contextual action bar — only in select mode, sits above the tab bar. */}
+      {selectMode && (
+        <View style={styles.actionBar}>
+          <Pressable
+            onPress={onClearAll}
+            disabled={working}
+            hitSlop={8}
+            style={({ pressed }) => [{ opacity: pressed || working ? 0.6 : 1 }]}
+          >
+            <Text style={styles.clearAllText}>Clear all</Text>
+          </Pressable>
+          <Pressable
+            onPress={onDeleteSelected}
+            disabled={selected.size === 0 || working}
+            style={({ pressed }) => [
+              styles.deleteButton,
+              (selected.size === 0 || working) && styles.deleteButtonDisabled,
+              { opacity: pressed ? 0.85 : 1 },
+            ]}
+          >
+            <MaterialIcons name="delete-outline" size={18} color="#fff" />
+            <Text style={styles.deleteButtonText}>
+              {selected.size > 0 ? `Delete (${selected.size})` : "Delete"}
+            </Text>
+          </Pressable>
+        </View>
+      )}
+
       <BottomNav active="history" />
     </SafeAreaView>
   );
+}
+
+// Buckets scans into relative date sections. Assumes `scans` is already sorted
+// newest-first (the /me/scans API orders by created_at DESC).
+function groupByDate(
+  scans: RecentScan[],
+): { title: string; data: RecentScan[] }[] {
+  if (scans.length === 0) return [];
+  const now = new Date();
+  const startOfToday = new Date(
+    now.getFullYear(),
+    now.getMonth(),
+    now.getDate(),
+  ).getTime();
+  const DAY = 86_400_000;
+
+  const order: string[] = [];
+  const buckets: Record<string, RecentScan[]> = {};
+  const push = (title: string, scan: RecentScan) => {
+    if (!buckets[title]) {
+      buckets[title] = [];
+      order.push(title);
+    }
+    buckets[title].push(scan);
+  };
+
+  for (const s of scans) {
+    const t = new Date(s.scanned_at).getTime();
+    let title: string;
+    if (Number.isNaN(t)) title = "Earlier";
+    else if (t >= startOfToday) title = "Today";
+    else if (t >= startOfToday - DAY) title = "Yesterday";
+    else if (t >= startOfToday - 7 * DAY) title = "Previous 7 days";
+    else if (t >= startOfToday - 30 * DAY) title = "Previous 30 days";
+    else title = "Earlier";
+    push(title, s);
+  }
+
+  return order.map((title) => ({ title, data: buckets[title] }));
+}
+
+// Cross-platform confirm. React Native's Alert.alert is a no-op on
+// react-native-web, so on web we fall back to window.confirm. Resolves true
+// when the user confirms the destructive action.
+function confirmDestructive(title: string, message: string): Promise<boolean> {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return Promise.resolve(window.confirm(`${title}\n\n${message}`));
+    }
+    return Promise.resolve(true);
+  }
+  return new Promise((resolve) => {
+    Alert.alert(title, message, [
+      { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+      { text: "Delete", style: "destructive", onPress: () => resolve(true) },
+    ]);
+  });
+}
+
+// Lightweight, non-blocking notice. Alert on native; console on web (a failed
+// delete is rare and the list reloads to the true state regardless).
+function notify(message: string): void {
+  if (Platform.OS === "web") {
+    if (typeof window !== "undefined" && typeof window.alert === "function") {
+      window.alert(message);
+    }
+    return;
+  }
+  Alert.alert("", message);
 }
 
 function formatRelativeTime(iso: string): string {
@@ -209,7 +428,8 @@ const styles = StyleSheet.create({
   brandName: {
     ...typography.headlineLgMobile,
     color: colors.primary,
-    fontWeight: "900", fontFamily: "Inter_900Black",
+    fontWeight: "900",
+    fontFamily: "Inter_900Black",
     letterSpacing: -1,
   },
   quotaBlock: {
@@ -233,9 +453,44 @@ const styles = StyleSheet.create({
     color: colors.primary,
     letterSpacing: 0.2,
   },
+  toolbar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+  },
+  toolbarTitle: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+  },
+  toolbarCount: {
+    ...typography.labelMd,
+    color: colors.text,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+  },
+  toolbarAction: {
+    ...typography.labelMd,
+    color: colors.primary,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+  },
   list: {
     padding: spacing.lg,
+    paddingTop: spacing.sm,
     gap: spacing.sm,
+  },
+  sectionHeader: {
+    ...typography.labelMd,
+    color: colors.textMuted,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
   },
   row: {
     flexDirection: "row",
@@ -249,6 +504,10 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     ...elevation.card,
   },
+  rowSelected: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryFixed,
+  },
   rowBody: { flex: 1, paddingVertical: spacing.md, gap: 2 },
   rowTitleRow: {
     flexDirection: "row",
@@ -258,7 +517,8 @@ const styles = StyleSheet.create({
   rowTitle: {
     ...typography.bodyMd,
     color: colors.text,
-    fontWeight: "400", fontFamily: "Inter_400Regular",
+    fontWeight: "400",
+    fontFamily: "Inter_400Regular",
     flexShrink: 1,
   },
   watchedIcon: {
@@ -267,7 +527,42 @@ const styles = StyleSheet.create({
   rowMeta: {
     ...typography.caption,
     color: colors.textMuted,
-    fontWeight: "400", fontFamily: "Inter_400Regular",
+    fontWeight: "400",
+    fontFamily: "Inter_400Regular",
+  },
+  actionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceContainerHighest,
+  },
+  clearAllText: {
+    ...typography.labelMd,
+    color: colors.highRisk,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
+  },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.highRisk,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.full,
+  },
+  deleteButtonDisabled: {
+    backgroundColor: colors.textDim,
+  },
+  deleteButtonText: {
+    ...typography.labelMd,
+    color: "#fff",
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   centerWrap: {
     flex: 1,
@@ -279,7 +574,8 @@ const styles = StyleSheet.create({
   emptyTitle: {
     ...typography.headlineMdMobile,
     color: colors.text,
-    fontWeight: "700", fontFamily: "Inter_700Bold",
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   emptyBody: {
     ...typography.bodyMd,

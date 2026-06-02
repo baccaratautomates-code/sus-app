@@ -103,6 +103,45 @@ app.get("/me/scans", async (c) => {
   }
 });
 
+// Clear ALL of a user's scan history. Must be registered BEFORE the /:id route
+// so "scans" isn't captured as an :id param. The verdict cache (Redis) is left
+// intact — clearing history is about the user's record, not the shared cache,
+// and a re-scan of the same URL should still hit the cached verdict.
+app.delete("/me/scans", async (c) => {
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+  try {
+    const rows = (await sql`
+      DELETE FROM scans WHERE user_id = ${userId} RETURNING id
+    `) as Array<{ id: string }>;
+    console.log(`[me/scans] cleared ${rows.length} scan(s) for user=${userId}`);
+    return c.json({ ok: true, deleted: rows.length });
+  } catch (err) {
+    console.error(`[me/scans DELETE all] failed user=${userId}: ${(err as Error).message}`);
+    return c.json({ error: "failed to clear scans" }, 500);
+  }
+});
+
+// Delete a single scan from the user's history. Scoped to the owning user so
+// one user can't delete another's rows even with a guessed id.
+app.delete("/me/scans/:id", async (c) => {
+  const id = c.req.param("id");
+  const userId = c.req.query("user_id");
+  if (!userId) return c.json({ error: "user_id required" }, 400);
+  if (!id) return c.json({ error: "id required" }, 400);
+  try {
+    const rows = (await sql`
+      DELETE FROM scans WHERE id = ${id} AND user_id = ${userId} RETURNING id
+    `) as Array<{ id: string }>;
+    if (rows.length === 0) return c.json({ error: "not found" }, 404);
+    console.log(`[me/scans] deleted user=${userId} id=${id}`);
+    return c.body(null, 204);
+  } catch (err) {
+    console.error(`[me/scans DELETE] failed user=${userId} id=${id}: ${(err as Error).message}`);
+    return c.json({ error: "failed to delete scan" }, 500);
+  }
+});
+
 // Current quota status for the given user. Used by HomeScreen / VerdictScreen /
 // HistoryScreen to render the "X scans left" pill against real backend state
 // instead of a hardcoded mock. Returns scans_remaining = -1 as a sentinel for
