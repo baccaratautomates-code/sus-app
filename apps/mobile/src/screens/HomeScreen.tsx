@@ -14,12 +14,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { QuotaChip } from "../components/QuotaChip";
 import { ScanCard } from "../components/ScanCard";
 import {
   fetchQuota,
   fetchRecentScans,
   mockState,
-  nextQuotaResetLabel,
   type RecentScan,
 } from "../store";
 import {
@@ -122,23 +122,10 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
         <BrandMark />
-        <View style={styles.quotaBlock}>
-          <View style={styles.scansPill}>
-            <Text style={styles.scansPillText}>
-              {isUnlimited
-                ? "Unlimited"
-                : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left · ${nextQuotaResetLabel()}`}
-            </Text>
-          </View>
-          {!isUnlimited && (
-            <Pressable
-              onPress={() => navigation.navigate("Paywall")}
-              hitSlop={8}
-            >
-              <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
-            </Pressable>
-          )}
-        </View>
+        <QuotaChip
+          scansLeft={scansLeft}
+          onUpgrade={() => navigation.navigate("Paywall")}
+        />
       </View>
 
       <ScrollView

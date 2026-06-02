@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import type { Confidence, Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { QuotaChip } from "../components/QuotaChip";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import { usePro } from "../context/ProContext";
@@ -22,7 +23,6 @@ import {
   fetchQuota,
   fetchWatches,
   mockState,
-  nextQuotaResetLabel,
 } from "../store";
 import {
   DISCLAIMER,
@@ -77,7 +77,6 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
     });
     return () => { cancelled = true; };
   }, []);
-  const isUnlimited = scansLeft < 0;
 
   // Defensive normalization. Old persisted scans (or any payload where the
   // server forgot to parse the JSONB string back to an object) can be missing
@@ -192,24 +191,27 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
-        <BrandMark />
-        <View style={styles.quotaBlock}>
-          <View style={styles.scansPill}>
-            <Text style={styles.scansPillText}>
-              {isUnlimited
-                ? "Unlimited"
-                : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left · ${nextQuotaResetLabel()}`}
-            </Text>
-          </View>
-          {!isUnlimited && (
-            <Pressable
-              onPress={() => navigation.navigate("Paywall")}
-              hitSlop={8}
-            >
-              <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
-            </Pressable>
-          )}
-        </View>
+        {/* Opened from History/Watch/Recent (no back button) → show a close ✕
+            so the user can dismiss back to the list. The post-scan flow
+            (from "scan") keeps the brand mark. */}
+        {from === "history" ? (
+          <Pressable
+            onPress={() =>
+              navigation.canGoBack()
+                ? navigation.goBack()
+                : navigation.navigate("History")
+            }
+            hitSlop={8}
+          >
+            <MaterialIcons name="close" size={24} color={colors.text} />
+          </Pressable>
+        ) : (
+          <BrandMark />
+        )}
+        <QuotaChip
+          scansLeft={scansLeft}
+          onUpgrade={() => navigation.navigate("Paywall")}
+        />
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>

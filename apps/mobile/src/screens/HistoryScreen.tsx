@@ -12,23 +12,22 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import type { Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
-import { BrandMark } from "../components/BrandMark";
-import { ConfirmDialog } from "../components/ConfirmDialog";
+import { QuotaChip } from "../components/QuotaChip";
 import { ScanCard } from "../components/ScanCard";
 import { SwipeableRow } from "../components/SwipeableRow";
+import { UndoSnackbar } from "../components/UndoSnackbar";
 import {
-  clearScans,
   deleteScan,
   fetchQuota,
   fetchRecentScans,
   mockState,
-  nextQuotaResetLabel,
   type RecentScan,
 } from "../store";
 import { colors, radius, spacing, typography } from "../theme";
 import type { ScreenProps } from "../navigation";
 
 const HISTORY_LIMIT = 50;
+const UNDO_WINDOW_MS = 4000;
 
 const FILTERS: { key: "all" | Verdict; label: string }[] = [
   { key: "all", label: "All" },
@@ -46,34 +45,12 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
 
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [working, setWorking] = useState(false);
 
-  const [dialog, setDialog] = useState<{
-    title: string;
-    message?: string;
-    confirmLabel?: string;
-    noticeOnly?: boolean;
-  } | null>(null);
-  const dialogResolver = useRef<((ok: boolean) => void) | null>(null);
-
-  const askConfirm = (title: string, message: string, confirmLabel = "Delete") =>
-    new Promise<boolean>((resolve) => {
-      dialogResolver.current = resolve;
-      setDialog({ title, message, confirmLabel });
-    });
-
-  const showNotice = (title: string, message: string) =>
-    new Promise<void>((resolve) => {
-      dialogResolver.current = () => resolve();
-      setDialog({ title, message, noticeOnly: true });
-    });
-
-  const closeDialog = (ok: boolean) => {
-    const resolve = dialogResolver.current;
-    dialogResolver.current = null;
-    setDialog(null);
-    resolve?.(ok);
-  };
+  // Deferred-delete / undo state. Deleted rows vanish immediately but the
+  // server delete is held for UNDO_WINDOW_MS; UNDO restores the snapshot.
+  const [undo, setUndo] = useState<{ count: number } | null>(null);
+  const pendingRef = useRef<{ ids: string[]; snapshot: RecentScan[] } | null>(null);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = useCallback(async () => {
     const [rows, quota] = await Promise.all([
@@ -86,12 +63,32 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     setRefreshing(false);
   }, []);
 
+  // Commit any pending delete to the server (called when the undo window lapses
+  // or the user leaves the screen).
+  const commitPending = useCallback(() => {
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
+    }
+    const p = pendingRef.current;
+    pendingRef.current = null;
+    setUndo(null);
+    if (p && p.ids.length) {
+      Promise.all(p.ids.map((id) => deleteScan(id))).catch(() => {
+        void load();
+      });
+    }
+  }, [load]);
+
   const isUnlimited = scansLeft < 0;
 
   useFocusEffect(
     useCallback(() => {
       load();
-    }, [load]),
+      // Flush any pending delete when leaving the screen so it isn't lost and
+      // the rows don't reappear on a refetch.
+      return () => commitPending();
+    }, [load, commitPending]),
   );
 
   const onRefresh = () => {
@@ -142,42 +139,32 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     }
   };
 
-  const onDeleteSelected = async () => {
-    if (selected.size === 0) return;
-    const n = selected.size;
-    const ok = await askConfirm(
-      `Delete ${n} ${n === 1 ? "scan" : "scans"}?`,
-      "This removes them from your history. This can't be undone.",
-    );
-    if (!ok) return;
-    const ids = new Set(selected);
-    setScans((prev) => prev.filter((s) => !ids.has(s.id)));
-    exitSelect();
-    setWorking(true);
-    try {
-      await Promise.all([...ids].map((id) => deleteScan(id)));
-    } catch {
-      await load();
-      void showNotice("Couldn't delete", "Some scans couldn't be deleted. Please try again.");
-    } finally {
-      setWorking(false);
-    }
+  // Instant delete with an undo window — no confirmation dialog.
+  const scheduleDelete = (ids: string[]) => {
+    if (ids.length === 0) return;
+    commitPending(); // flush any earlier pending batch first
+    const idSet = new Set(ids);
+    pendingRef.current = { ids, snapshot: scans };
+    setScans((prev) => prev.filter((s) => !idSet.has(s.id)));
+    setUndo({ count: ids.length });
+    undoTimer.current = setTimeout(commitPending, UNDO_WINDOW_MS);
   };
 
-  // Swipe-to-delete a single row: confirm, then optimistically remove + sync.
-  const onSwipeDeleteRequest = async (scan: RecentScan) => {
-    const ok = await askConfirm(
-      "Delete this scan?",
-      "This removes it from your history. This can't be undone.",
-    );
-    if (!ok) return;
-    setScans((prev) => prev.filter((s) => s.id !== scan.id));
-    try {
-      await deleteScan(scan.id);
-    } catch {
-      await load();
-      void showNotice("Couldn't delete", "Please try again.");
+  const undoDelete = () => {
+    if (undoTimer.current) {
+      clearTimeout(undoTimer.current);
+      undoTimer.current = null;
     }
+    const p = pendingRef.current;
+    pendingRef.current = null;
+    setUndo(null);
+    if (p) setScans(p.snapshot);
+  };
+
+  const onDeleteSelected = () => {
+    if (selected.size === 0) return;
+    scheduleDelete([...selected]);
+    exitSelect();
   };
 
   return (
@@ -193,9 +180,9 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
             <View style={{ flex: 1 }} />
             <Pressable
               onPress={onDeleteSelected}
-              disabled={selected.size === 0 || working}
+              disabled={selected.size === 0}
               hitSlop={8}
-              style={{ opacity: selected.size === 0 || working ? 0.35 : 1 }}
+              style={{ opacity: selected.size === 0 ? 0.35 : 1 }}
             >
               <MaterialIcons name="delete-outline" size={24} color={colors.text} />
             </Pressable>
@@ -212,21 +199,11 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
       ) : (
         <>
           <View style={styles.header}>
-            <BrandMark />
-            <View style={styles.quotaBlock}>
-              <View style={styles.scansPill}>
-                <Text style={styles.scansPillText}>
-                  {isUnlimited
-                    ? "Unlimited"
-                    : `${scansLeft} ${scansLeft === 1 ? "scan" : "scans"} left · ${nextQuotaResetLabel()}`}
-                </Text>
-              </View>
-              {!isUnlimited && (
-                <Pressable onPress={() => navigation.navigate("Paywall")} hitSlop={8}>
-                  <Text style={styles.upgradeLink}>Upgrade to Pro →</Text>
-                </Pressable>
-              )}
-            </View>
+            <Text style={styles.screenTitle}>History</Text>
+            <QuotaChip
+              scansLeft={scansLeft}
+              onUpgrade={() => navigation.navigate("Paywall")}
+            />
           </View>
 
           <View style={styles.filterRow}>
@@ -278,7 +255,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
           renderItem={({ item }) => (
             <SwipeableRow
               enabled={!selectMode}
-              onSwipeDelete={() => onSwipeDeleteRequest(item)}
+              onSwipeDelete={() => scheduleDelete([item.id])}
             >
               <ScanCard
                 scan={item}
@@ -292,17 +269,19 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         />
       )}
 
-      <BottomNav active="history" />
-
-      <ConfirmDialog
-        visible={dialog !== null}
-        title={dialog?.title ?? ""}
-        message={dialog?.message}
-        confirmLabel={dialog?.confirmLabel}
-        noticeOnly={dialog?.noticeOnly}
-        onConfirm={() => closeDialog(true)}
-        onCancel={() => closeDialog(false)}
+      <UndoSnackbar
+        visible={undo !== null}
+        message={
+          undo
+            ? undo.count === 1
+              ? "Scan deleted"
+              : `${undo.count} scans deleted`
+            : ""
+        }
+        onUndo={undoDelete}
       />
+
+      <BottomNav active="history" />
     </SafeAreaView>
   );
 }
@@ -354,20 +333,11 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceContainerHighest,
   },
-  quotaBlock: { alignItems: "flex-end", gap: 4 },
-  scansPill: {
-    backgroundColor: colors.primaryFixed,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.full,
-  },
-  scansPillText: { ...typography.labelMd, color: colors.primary },
-  upgradeLink: {
-    fontSize: 10,
-    fontWeight: "500",
-    fontFamily: "Inter_500Medium",
-    color: colors.primary,
-    letterSpacing: 0.2,
+  screenTitle: {
+    ...typography.headlineMdMobile,
+    color: colors.text,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   filterRow: {
     flexDirection: "row",

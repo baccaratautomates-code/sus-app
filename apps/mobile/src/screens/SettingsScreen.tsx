@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { BottomNav } from "../components/BottomNav";
-import { BrandMark } from "../components/BrandMark";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { UserAvatar } from "../components/UserAvatar";
 import { useAuth } from "../context/AuthContext";
@@ -57,7 +56,7 @@ export default function SettingsScreen({ navigation }: ScreenProps<"Settings">) 
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <BrandMark />
+        <Text style={styles.screenTitle}>Profile</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -197,6 +196,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceContainerHighest,
+  },
+  screenTitle: {
+    ...typography.headlineMdMobile,
+    color: colors.text,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   brand: { flexDirection: "row", alignItems: "center", gap: spacing.xs },
   brandName: {

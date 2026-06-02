@@ -11,7 +11,6 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
-import { BrandMark } from "../components/BrandMark";
 import { ConfirmModal } from "../components/ConfirmModal";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
@@ -77,7 +76,7 @@ export default function WatchScreen({ navigation }: ScreenProps<"Watch">) {
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
-        <BrandMark />
+        <Text style={styles.screenTitle}>Watch</Text>
       </View>
 
       {loading ? (
@@ -218,6 +217,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceContainerHighest,
+  },
+  screenTitle: {
+    ...typography.headlineMdMobile,
+    color: colors.text,
+    fontWeight: "700",
+    fontFamily: "Inter_700Bold",
   },
   list: {
     padding: spacing.lg,
