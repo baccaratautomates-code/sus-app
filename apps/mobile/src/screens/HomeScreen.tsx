@@ -14,8 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
-import { ScanThumbnail } from "../components/ScanThumbnail";
-import { VerdictBadge } from "../components/VerdictBadge";
+import { ScanCard } from "../components/ScanCard";
 import {
   fetchQuota,
   fetchRecentScans,
@@ -238,8 +237,9 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
         ) : (
           <View style={styles.recentList}>
             {recentScans.map((scan) => (
-              <Pressable
+              <ScanCard
                 key={scan.id}
+                scan={scan}
                 onPress={() => {
                   // scan.response can be undefined for scans persisted before
                   // /me/scans started returning the JSONB column — fall back
@@ -256,25 +256,7 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
                     });
                   }
                 }}
-                style={({ pressed }) => [
-                  styles.recentRow,
-                  { opacity: pressed ? 0.85 : 1 },
-                ]}
-              >
-                <ScanThumbnail
-                  thumbnailUrl={scan.thumbnailUrl}
-                  url={scan.product_name}
-                />
-                <View style={styles.recentBody}>
-                  <Text style={styles.recentName} numberOfLines={1}>
-                    {scan.product_name}
-                  </Text>
-                  <Text style={styles.recentMeta}>
-                    {formatRelativeTime(scan.scanned_at)}
-                  </Text>
-                </View>
-                <VerdictBadge verdict={scan.verdict} size="sm" />
-              </Pressable>
+              />
             ))}
           </View>
         )}
@@ -283,22 +265,6 @@ export default function HomeScreen({ navigation }: ScreenProps<"Home">) {
       <BottomNav active="scan" />
     </SafeAreaView>
   );
-}
-
-// "2m ago" / "3h ago" / "Oct 24" style. Simple human-friendly relative time
-// without pulling in date-fns just for this one helper.
-function formatRelativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return iso;
-  const seconds = Math.floor((Date.now() - then) / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString();
 }
 
 const styles = StyleSheet.create({
