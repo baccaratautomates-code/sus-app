@@ -36,3 +36,30 @@ export async function fetchWithTimeout(
     clearTimeout(timeoutId);
   }
 }
+
+// Consumer marketplaces (Lazada, Shopee, TikTok, …) block datacenter IPs with
+// HTTP 403 / anti-bot captcha pages — so a plain server-side fetch from a host
+// like Railway gets nothing. When SCRAPER_API_KEY is set we route the request
+// through ScraperAPI, which fetches it through a residential IP and returns the
+// real response body. Without the key we fall back to a direct fetch (works in
+// local dev on a residential connection; degrades gracefully in prod).
+//
+// `countryCode` geo-targets the proxy exit node (e.g. "ph" for Lazada PH, which
+// also reduces the chance of a region challenge). Pass the SAME timeoutMs you'd
+// use for a direct fetch — proxying adds latency, so size it generously.
+export async function proxyFetch(
+  targetUrl: string,
+  opts: { timeoutMs?: number; countryCode?: string; headers?: Record<string, string> } = {},
+): Promise<Response> {
+  const key = process.env.SCRAPER_API_KEY;
+  if (key) {
+    const params = new URLSearchParams({ api_key: key, url: targetUrl });
+    if (opts.countryCode) params.set("country_code", opts.countryCode);
+    return fetchWithTimeout(`https://api.scraperapi.com/?${params.toString()}`, {
+      timeoutMs: opts.timeoutMs,
+    });
+  }
+  // No proxy configured — direct fetch (residential dev machine, or accept the
+  // 403 in prod and let the caller degrade).
+  return fetchWithTimeout(targetUrl, { headers: opts.headers, timeoutMs: opts.timeoutMs });
+}
