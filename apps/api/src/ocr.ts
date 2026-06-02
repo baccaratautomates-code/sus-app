@@ -127,11 +127,22 @@ function cleanTrailingPunctuation(url: string): string {
 // index individual P2P listings on these platforms. Returning Not Enough Info
 // with tailored copy is more honest than running the scrape pipeline and
 // returning a generic "we couldn't find evidence" message after 25 seconds.
-export type UnsupportedReason = "fb-marketplace" | "ig-shop";
+export type UnsupportedReason = "fb-marketplace" | "ig-shop" | "tiktok-shop-product";
 
 export function detectUnsupportedMarketplace(url: string): UnsupportedReason | null {
   if (/facebook\.com\/marketplace\/item\//i.test(url)) return "fb-marketplace";
   if (/instagram\.com\/(?:p|reel)\//i.test(url)) return "ig-shop";
+  // TikTok Shop PRODUCT listings: the product/seller data is walled behind
+  // TikTok's app + login + signed APIs. The public page is an empty client
+  // shell — verified that even a full JS-rendered fetch carries no product,
+  // price, rating, or seller data. So there's nothing to scrape, by anyone,
+  // without a logged-in session. Matches the region-prefixed web PDP form
+  // (tiktok.com/ph/pdp/<slug>/<id>) and the shop-subdomain form
+  // (shop-xx.tiktok.com/view/product/<id>). Creator/seller PROFILE URLs
+  // (tiktok.com/@handle) are still fully scannable and must NOT match here.
+  if (/tiktok\.com\/(?:[a-z]{2}\/)?(?:pdp|view\/product|product)\//i.test(url)) {
+    return "tiktok-shop-product";
+  }
   return null;
 }
 
@@ -141,6 +152,8 @@ export function unsupportedMarketplaceMessage(reason: UnsupportedReason): string
       return "Facebook Marketplace listings can't be checked — third-party watchdogs (Trustpilot, Scamadviser, DTI) don't index P2P trades, and FB itself walls profile data behind login. Best you can do: check the seller's profile age, message them first, and meet up with cash-on-delivery when possible. Sus works best on Shopee, Lazada, TikTok Shop, and brand websites.";
     case "ig-shop":
       return "Instagram shop posts can't be checked — there's no public review data Sus can pull. Try a brand website or marketplace listing URL instead, or scroll the seller's tagged posts and DM history before paying.";
+    case "tiktok-shop-product":
+      return "TikTok Shop product listings can't be independently checked — TikTok keeps the product and seller data behind its app and login, so there's no public record for Sus to pull. Best move: tap the seller's name to open their TikTok profile and paste THAT link into Sus instead — a verified badge and a real follower count are good signs. Also look for TikTok's orange Shop / Shop Guarantee badge and read the in-app reviews before paying.";
   }
 }
 
