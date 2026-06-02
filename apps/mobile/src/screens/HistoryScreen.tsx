@@ -14,6 +14,8 @@ import type { ScanResponse, Verdict } from "@sus/shared";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ScanThumbnail } from "../components/ScanThumbnail";
+import { SwipeableRow } from "../components/SwipeableRow";
 import {
   clearScans,
   deleteScan,
@@ -189,6 +191,23 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     }
   };
 
+  // Swipe-to-delete a single row. Confirm first (a stray swipe shouldn't nuke a
+  // scan), then optimistically remove and sync the server.
+  const onSwipeDeleteRequest = async (scan: RecentScan) => {
+    const ok = await askConfirm(
+      "Delete this scan?",
+      "This removes it from your history. This can't be undone.",
+    );
+    if (!ok) return;
+    setScans((prev) => prev.filter((s) => s.id !== scan.id));
+    try {
+      await deleteScan(scan.id);
+    } catch {
+      await load();
+      void showNotice("Couldn't delete", "Please try again.");
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container} edges={["top"]}>
       <View style={styles.header}>
@@ -227,31 +246,20 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
         })}
       </View>
 
-      {/* Select toolbar — minimal, sits under the filters */}
-      {!loading && scans.length > 0 && (
+      {/* Selection toolbar — only in select mode (entered via long-press). */}
+      {selectMode && (
         <View style={styles.toolbar}>
-          {selectMode ? (
-            <>
-              <Pressable onPress={exitSelect} hitSlop={8}>
-                <Text style={styles.toolbarAction}>Cancel</Text>
-              </Pressable>
-              <Text style={styles.toolbarCount}>
-                {selected.size > 0 ? `${selected.size} selected` : "Select items"}
-              </Text>
-              <Pressable onPress={toggleSelectAll} hitSlop={8}>
-                <Text style={styles.toolbarAction}>
-                  {allSelected ? "Deselect all" : "Select all"}
-                </Text>
-              </Pressable>
-            </>
-          ) : (
-            <>
-              <View style={{ flex: 1 }} />
-              <Pressable onPress={() => enterSelect()} hitSlop={8}>
-                <Text style={styles.toolbarAction}>Select</Text>
-              </Pressable>
-            </>
-          )}
+          <Pressable onPress={exitSelect} hitSlop={8}>
+            <Text style={styles.toolbarAction}>Cancel</Text>
+          </Pressable>
+          <Text style={styles.toolbarCount}>
+            {selected.size > 0 ? `${selected.size} selected` : "Select items"}
+          </Text>
+          <Pressable onPress={toggleSelectAll} hitSlop={8}>
+            <Text style={styles.toolbarAction}>
+              {allSelected ? "Deselect all" : "Select all"}
+            </Text>
+          </Pressable>
         </View>
       )}
 
@@ -290,44 +298,53 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
                 ? "—"
                 : String(item.response?.trust_score ?? "—");
             return (
-              <Pressable
-                onPress={() => onRowPress(item)}
-                onLongPress={() => !selectMode && enterSelect(item.id)}
-                delayLongPress={250}
-                style={({ pressed }) => [
-                  styles.card,
-                  isSelected && styles.cardSelected,
-                  { opacity: pressed ? 0.9 : 1 },
-                ]}
+              <SwipeableRow
+                enabled={!selectMode}
+                onSwipeDelete={() => onSwipeDeleteRequest(item)}
               >
-                {selectMode && (
-                  <MaterialIcons
-                    name={isSelected ? "check-circle" : "radio-button-unchecked"}
-                    size={22}
-                    color={isSelected ? colors.primary : colors.textDim}
-                    style={styles.checkbox}
+                <Pressable
+                  onPress={() => onRowPress(item)}
+                  onLongPress={() => !selectMode && enterSelect(item.id)}
+                  delayLongPress={250}
+                  style={({ pressed }) => [
+                    styles.card,
+                    isSelected && styles.cardSelected,
+                    { opacity: pressed ? 0.9 : 1 },
+                  ]}
+                >
+                  {selectMode && (
+                    <MaterialIcons
+                      name={isSelected ? "check-circle" : "radio-button-unchecked"}
+                      size={22}
+                      color={isSelected ? colors.primary : colors.textDim}
+                      style={styles.checkbox}
+                    />
+                  )}
+                  <ScanThumbnail
+                    thumbnailUrl={item.thumbnailUrl}
+                    url={item.product_name}
                   />
-                )}
-                <View style={styles.cardBody}>
-                  <View style={styles.cardTopRow}>
-                    <View style={[styles.chip, { backgroundColor: meta.chipBg }]}>
-                      <Text style={[styles.chipText, { color: meta.chipText }]}>
-                        {meta.label}
+                  <View style={styles.cardBody}>
+                    <View style={styles.cardTopRow}>
+                      <View style={[styles.chip, { backgroundColor: meta.chipBg }]}>
+                        <Text style={[styles.chipText, { color: meta.chipText }]}>
+                          {meta.label}
+                        </Text>
+                      </View>
+                      <Text style={styles.sourceLabel} numberOfLines={1}>
+                        {sourceLabel(item.product_name)}
                       </Text>
                     </View>
-                    <Text style={styles.sourceLabel} numberOfLines={1}>
-                      {sourceLabel(item.product_name)}
+                    <Text style={styles.productName} numberOfLines={2}>
+                      {productName(item)}
                     </Text>
                   </View>
-                  <Text style={styles.productName} numberOfLines={2}>
-                    {productName(item)}
-                  </Text>
-                </View>
-                <View style={styles.scoreBlock}>
-                  <Text style={[styles.score, { color: meta.score }]}>{score}</Text>
-                  <Text style={styles.scoreLabel}>TRUST SCORE</Text>
-                </View>
-              </Pressable>
+                  <View style={styles.scoreBlock}>
+                    <Text style={[styles.score, { color: meta.score }]}>{score}</Text>
+                    <Text style={styles.scoreLabel}>TRUST SCORE</Text>
+                  </View>
+                </Pressable>
+              </SwipeableRow>
             );
           }}
         />
@@ -572,7 +589,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     gap: spacing.sm,
-    marginBottom: spacing.sm,
     ...elevation.card,
   },
   cardSelected: {
@@ -602,8 +618,6 @@ const styles = StyleSheet.create({
   productName: {
     ...typography.bodyMd,
     color: colors.text,
-    fontWeight: "700",
-    fontFamily: "Inter_700Bold",
   },
   scoreBlock: { alignItems: "flex-end", minWidth: 64 },
   score: {
