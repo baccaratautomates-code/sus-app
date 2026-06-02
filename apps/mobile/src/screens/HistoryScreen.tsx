@@ -1,9 +1,7 @@
 import { MaterialIcons } from "@expo/vector-icons";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Platform,
   Pressable,
   SectionList,
   StyleSheet,
@@ -14,6 +12,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "@react-navigation/native";
 import { BottomNav } from "../components/BottomNav";
 import { BrandMark } from "../components/BrandMark";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ScanThumbnail } from "../components/ScanThumbnail";
 import { VerdictBadge } from "../components/VerdictBadge";
 import {
@@ -51,6 +50,36 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [working, setWorking] = useState(false);
+
+  // In-app confirm/notice dialog state. `dialogResolver` lets us keep the
+  // ergonomic `await askConfirm(...)` API while rendering our own modal instead
+  // of the browser-native confirm/alert.
+  const [dialog, setDialog] = useState<{
+    title: string;
+    message?: string;
+    confirmLabel?: string;
+    noticeOnly?: boolean;
+  } | null>(null);
+  const dialogResolver = useRef<((ok: boolean) => void) | null>(null);
+
+  const askConfirm = (title: string, message: string, confirmLabel = "Delete") =>
+    new Promise<boolean>((resolve) => {
+      dialogResolver.current = resolve;
+      setDialog({ title, message, confirmLabel });
+    });
+
+  const showNotice = (title: string, message: string) =>
+    new Promise<void>((resolve) => {
+      dialogResolver.current = () => resolve();
+      setDialog({ title, message, noticeOnly: true });
+    });
+
+  const closeDialog = (ok: boolean) => {
+    const resolve = dialogResolver.current;
+    dialogResolver.current = null;
+    setDialog(null);
+    resolve?.(ok);
+  };
 
   const load = useCallback(async () => {
     const [rows, quota, watches] = await Promise.all([
@@ -128,7 +157,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
   const onDeleteSelected = async () => {
     if (selected.size === 0) return;
     const n = selected.size;
-    const ok = await confirmDestructive(
+    const ok = await askConfirm(
       `Delete ${n} ${n === 1 ? "scan" : "scans"}?`,
       "This removes them from your history. This can't be undone.",
     );
@@ -143,7 +172,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
     } catch {
       // A delete failed — reload to get the true server state back.
       await load();
-      notify("Couldn't delete some scans. Please try again.");
+      void showNotice("Couldn't delete", "Some scans couldn't be deleted. Please try again.");
     } finally {
       setWorking(false);
     }
@@ -151,9 +180,10 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
 
   const onClearAll = async () => {
     if (scans.length === 0) return;
-    const ok = await confirmDestructive(
+    const ok = await askConfirm(
       "Clear all history?",
       `This permanently removes all ${scans.length} scans from your history. This can't be undone.`,
+      "Clear all",
     );
     if (!ok) return;
     const snapshot = scans;
@@ -164,7 +194,7 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
       await clearScans();
     } catch {
       setScans(snapshot); // revert
-      notify("Couldn't clear history. Please try again.");
+      void showNotice("Couldn't clear history", "Please try again.");
     } finally {
       setWorking(false);
     }
@@ -324,6 +354,16 @@ export default function HistoryScreen({ navigation }: ScreenProps<"History">) {
       )}
 
       <BottomNav active="history" />
+
+      <ConfirmDialog
+        visible={dialog !== null}
+        title={dialog?.title ?? ""}
+        message={dialog?.message}
+        confirmLabel={dialog?.confirmLabel}
+        noticeOnly={dialog?.noticeOnly}
+        onConfirm={() => closeDialog(true)}
+        onCancel={() => closeDialog(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -365,36 +405,6 @@ function groupByDate(
   }
 
   return order.map((title) => ({ title, data: buckets[title] }));
-}
-
-// Cross-platform confirm. React Native's Alert.alert is a no-op on
-// react-native-web, so on web we fall back to window.confirm. Resolves true
-// when the user confirms the destructive action.
-function confirmDestructive(title: string, message: string): Promise<boolean> {
-  if (Platform.OS === "web") {
-    if (typeof window !== "undefined" && typeof window.confirm === "function") {
-      return Promise.resolve(window.confirm(`${title}\n\n${message}`));
-    }
-    return Promise.resolve(true);
-  }
-  return new Promise((resolve) => {
-    Alert.alert(title, message, [
-      { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
-      { text: "Delete", style: "destructive", onPress: () => resolve(true) },
-    ]);
-  });
-}
-
-// Lightweight, non-blocking notice. Alert on native; console on web (a failed
-// delete is rare and the list reloads to the true state regardless).
-function notify(message: string): void {
-  if (Platform.OS === "web") {
-    if (typeof window !== "undefined" && typeof window.alert === "function") {
-      window.alert(message);
-    }
-    return;
-  }
-  Alert.alert("", message);
 }
 
 function formatRelativeTime(iso: string): string {
