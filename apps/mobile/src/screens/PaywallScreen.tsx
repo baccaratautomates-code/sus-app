@@ -134,17 +134,15 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Header: drag handle + close button */}
-        <View style={styles.handleRow}>
-          <View style={styles.handle} />
-        </View>
+        {/* Header: back arrow. The paywall is a pushed screen, not a modal, so
+            a left-aligned arrow reads more correctly than a close ✕. */}
         <View style={styles.closeRow}>
           <Pressable
             onPress={() => navigation.goBack()}
             style={styles.closeBtn}
             hitSlop={8}
           >
-            <MaterialIcons name="close" size={24} color={colors.textMuted} />
+            <MaterialIcons name="arrow-back" size={24} color={colors.textMuted} />
           </Pressable>
         </View>
 
@@ -308,14 +306,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.xl,
   },
-  handleRow: { alignItems: "center", paddingTop: spacing.sm },
-  handle: {
-    width: 48,
-    height: 4,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceContainerHighest,
-  },
-  closeRow: { alignItems: "flex-end", marginTop: spacing.sm },
+  closeRow: { alignItems: "flex-start", marginTop: spacing.sm },
   closeBtn: {
     padding: spacing.xs,
     borderRadius: radius.full,

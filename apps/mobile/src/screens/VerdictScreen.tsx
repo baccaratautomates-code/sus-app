@@ -177,9 +177,10 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
   return (
     <SafeAreaView style={styles.container} edges={["top", "bottom"]}>
       <View style={styles.appHeader}>
-        {/* Opened from History/Watch/Recent (no back button) → show a close ✕
-            so the user can dismiss back to the list. The post-scan flow
-            (from "scan") keeps the brand mark. */}
+        {/* Opened from History/Watch/Recent (no nav back button) → show a back
+            arrow so the user can return to the list. This is a pushed screen,
+            not a modal, so an arrow reads more correctly than a close ✕. The
+            post-scan flow (from "scan") keeps the brand mark. */}
         {from === "history" ? (
           <Pressable
             onPress={() =>
@@ -189,7 +190,7 @@ export default function VerdictScreen({ navigation, route }: ScreenProps<"Verdic
             }
             hitSlop={8}
           >
-            <MaterialIcons name="close" size={24} color={colors.text} />
+            <MaterialIcons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
         ) : (
           <BrandMark />
