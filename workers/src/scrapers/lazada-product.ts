@@ -2,73 +2,71 @@ import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
 import { emptyResult, fetchWithTimeout } from "./_lib";
 import { getLazadaHeaders } from "./_lazada-auth";
 
-// Lazada PH product-page scraper. Unlike Shopee, Lazada doesn't expose a
-// reliable public JSON API for product details — instead it embeds the product
-// + seller data inside the HTML page as a JS blob assigned to window.runParams
-// (or, on newer pages, a JSON-LD <script> block).
+// Lazada PH product-page scraper.
 //
-// We fetch the page HTML once and extract:
-//   • Product: name, price, rating, review count, sold count
-//   • Seller: name, rating, days since opened, follower count, "LazMall" / "Verified" badges
+// HISTORY: Lazada used to embed all product + seller + review data inside the
+// HTML page as `window.runParams = {...}`. As of mid-2026 that's gone — the
+// product page is now a client-rendered shell. The static HTML only carries:
+//   • A `__moduleData__` blob (product title, brand, sellerId, sku/price)
+//   • JSON-LD <script> blocks (product name, brand, brand-store URL)
+// The rating, review count, and review distribution are NOT in the page source
+// anymore; the browser fetches them from a separate review API after load.
 //
-// One scraper covers both because Lazada delivers them in the same payload.
+// So we now do TWO things:
+//   1. Fetch the product page → parse JSON-LD for brand / brand-store signal,
+//      and harvest anti-bot cookies (hng, EGG_SESS) for the next call.
+//   2. Call the public review API (my.lazada.com.ph/pdp/review/getReviewList)
+//      WITH those cookies → average rating, review count, score histogram.
+//
+// The review API is anti-bot guarded: the FIRST call per fresh cookie session
+// succeeds, rapid repeats get a "_____tmd_____/punish" captcha page. Since a
+// scan makes exactly one call, the first-call-succeeds behaviour is enough —
+// we detect the punish page and degrade gracefully (no rating signals) rather
+// than 500ing or polluting the verdict with garbage.
 
-const TIMEOUT_MS = 12_000;
+// Tighter than the old single 12s budget: this scraper now makes two sequential
+// fetches, and the whole scan fan-out has a 25s ceiling.
+const PAGE_TIMEOUT_MS = 8_000;
+const REVIEW_TIMEOUT_MS = 6_000;
 
 // Same calibration philosophy as Shopee — PH marketplace ratings cluster high.
 const LOW_ITEM_RATING_THRESHOLD = 4.0;
-const LOW_SHOP_RATING_THRESHOLD = 4.0;
-const VERY_NEW_SHOP_DAYS = 90;
-const VERY_NEW_LISTING_DAYS = 30;
+const HIGH_RATING_THRESHOLD = 4.5;
+const ESTABLISHED_REVIEW_COUNT = 100;
+const SPARSE_REVIEW_COUNT = 10;
 
 interface ScraperInput {
   id: string;
   data: ScrapeJob;
 }
 
-interface LazadaRunParams {
-  // Top-level shape varies by page version. We probe these keys defensively.
-  data?: {
-    root?: {
-      fields?: LazadaFields;
+// Shape of the my.lazada.com.ph/pdp/review/getReviewList response (the subset
+// we read). Probed defensively — Lazada changes these without notice.
+interface LazadaReviewResponse {
+  success?: boolean;
+  model?: {
+    paging?: { totalItems?: number };
+    item?: {
+      sellerId?: number | string;
+      sellerName?: string | null;
+      itemTitle?: string;
+      productPrice?: string;
+      categoryName?: string;
+    };
+    ratings?: {
+      average?: number | string;
+      rateCount?: number | string;
+      reviewCount?: number | string;
+      // 5★ → 1★ counts, e.g. [793, 17, 4, 1, 2]
+      scores?: number[];
     };
   };
-  // Older layout
-  fields?: LazadaFields;
 }
 
-interface LazadaFields {
-  product?: {
-    title?: string;
-    rating?: { average?: number | string; totalRatings?: number | string };
-    sellerName?: string;
-    sellerId?: string | number;
-  };
-  skuBase?: {
-    skus?: Array<{ price?: number | string; specialPrice?: number | string }>;
-  };
-  seller?: {
-    name?: string;
-    sellerId?: string | number;
-    rating?: number | string;
-    positiveRating?: string;
-    daysOpened?: number | string;
-    fans?: number | string;
-    followers?: number | string;
-    isOfficial?: boolean;
-    isLazMall?: boolean;
-    isVerified?: boolean;
-    location?: string;
-    storePoint?: {
-      ratingScore?: number | string;
-    };
-  };
-  reviewRatings?: {
-    rating?: number | string;
-    averageRating?: number | string;
-    totalRatings?: number | string;
-  };
-  itemSold?: number | string;
+interface JsonLdProduct {
+  title: string | null;
+  brand: string | null;
+  isBrandStore: boolean;
 }
 
 export async function lazadaProductScraper({ id, data }: ScraperInput): Promise<ScrapeResult> {
@@ -83,51 +81,53 @@ export async function lazadaProductScraper({ id, data }: ScraperInput): Promise<
   console.log(`[lazada-product] lookup start: itemId=${data.item_id}`);
   const startedAt = Date.now();
 
-  let html: string;
+  // --- Step 1: fetch the product page (brand/JSON-LD + warmup cookies) ---
+  let jsonLd: JsonLdProduct = { title: null, brand: null, isBrandStore: false };
+  let cookie = "";
   try {
     const res = await fetchWithTimeout(pageUrl, {
       headers: getLazadaHeaders("https://www.lazada.com.ph/"),
-      timeoutMs: TIMEOUT_MS,
+      timeoutMs: PAGE_TIMEOUT_MS,
     });
-    if (!res.ok) {
-      console.warn(`[lazada-product] HTTP ${res.status} for ${pageUrl}`);
-      return emptyResult("lazada-product", id);
+    if (res.ok) {
+      cookie = collectCookies(res);
+      jsonLd = extractJsonLdProduct(await res.text());
+    } else {
+      console.warn(`[lazada-product] page HTTP ${res.status} for ${pageUrl}`);
     }
-    html = await res.text();
   } catch (err) {
-    console.error(
-      `[lazada-product] fetch failed for ${pageUrl}: ${(err as Error).message}`,
+    console.warn(`[lazada-product] page fetch failed for ${pageUrl}: ${(err as Error).message}`);
+    // Non-fatal: we can still try the review API without warmup cookies.
+  }
+
+  // --- Step 2: call the review API for rating + count + distribution ---
+  const review = await fetchReviews(data.item_id, pageUrl, cookie);
+
+  const item = review?.model?.item;
+  const ratings = review?.model?.ratings;
+  const productTitle = item?.itemTitle ?? jsonLd.title ?? undefined;
+  const brand = jsonLd.brand ?? undefined;
+  const sellerId = String(item?.sellerId ?? "");
+  const sellerName = item?.sellerName ?? brand ?? undefined;
+  const price = parsePesoPrice(item?.productPrice);
+  const itemRating = toNumber(ratings?.average);
+  const reviewCount =
+    toNumber(ratings?.reviewCount) ??
+    toNumber(ratings?.rateCount) ??
+    toNumber(review?.model?.paging?.totalItems);
+
+  // If we got nothing usable from EITHER source, return empty so synthesis
+  // honestly reports "Not Enough Info" rather than us inventing a baseline.
+  if (!productTitle && itemRating === null && reviewCount === null && !brand) {
+    console.warn(
+      `[lazada-product] no usable data for itemId=${data.item_id} (review punished/failed and no JSON-LD)`,
     );
     return emptyResult("lazada-product", id);
   }
 
-  const params = extractRunParams(html);
-  if (!params) {
-    console.warn(`[lazada-product] could not parse runParams for itemId=${data.item_id}`);
-    return emptyResult("lazada-product", id);
-  }
-
-  const fields = params.data?.root?.fields ?? params.fields ?? {};
-
-  const productTitle = fields.product?.title;
-  const itemRating = toNumber(fields.reviewRatings?.averageRating ?? fields.reviewRatings?.rating);
-  const reviewCount = toNumber(fields.reviewRatings?.totalRatings);
-  const sold = toNumber(fields.itemSold);
-  const price = parsePrice(fields.skuBase?.skus?.[0]?.specialPrice ?? fields.skuBase?.skus?.[0]?.price);
-
-  const seller = fields.seller ?? {};
-  const sellerName = seller.name ?? fields.product?.sellerName;
-  const sellerId = String(seller.sellerId ?? fields.product?.sellerId ?? "");
-  const sellerRating = toNumber(seller.storePoint?.ratingScore ?? seller.rating);
-  const sellerFollowers = toNumber(seller.fans ?? seller.followers);
-  const sellerDaysOpened = toNumber(seller.daysOpened);
-  const isLazMall = seller.isLazMall === true;
-  const isOfficial = seller.isOfficial === true;
-  const isVerified = seller.isVerified === true;
-
   const sellerSource: Source = {
     url: sellerId
-      ? `https://www.lazada.com.ph/shop/${encodeURIComponent(sellerName ?? sellerId)}?sellerId=${sellerId}`
+      ? `https://www.lazada.com.ph/shop/?sellerId=${sellerId}`
       : pageUrl,
     title: sellerName ? `Lazada seller: ${sellerName}` : `Lazada seller ${sellerId || "(unknown)"}`,
     signal_type: "seller_reputation",
@@ -142,66 +142,47 @@ export async function lazadaProductScraper({ id, data }: ScraperInput): Promise<
     {
       type: "seller_reputation",
       weight: 0,
-      detail: formatSellerBaseline(sellerName, sellerId, sellerRating, sellerFollowers, sellerDaysOpened, {
-        isLazMall,
-        isOfficial,
-        isVerified,
-      }),
+      detail: formatSellerBaseline(sellerName, sellerId, itemRating, reviewCount, jsonLd.isBrandStore),
       source: sellerSource,
     },
     {
       type: "price_sanity",
       weight: 0,
-      detail: formatListingBaseline(productTitle, price, itemRating, reviewCount, sold),
+      detail: formatListingBaseline(productTitle, price, itemRating, reviewCount),
       source: listingSource,
     },
   ];
 
-  // Positive seller signals — Lazada badges are PH-meaningful, same as Shopee.
-  if (isLazMall) {
+  // Positive: an established listing with a high rating across many reviews is
+  // real, citable evidence the seller delivers. Negative weight = trust-positive
+  // (same sign convention as the Shopee scraper).
+  if (
+    itemRating !== null &&
+    itemRating >= HIGH_RATING_THRESHOLD &&
+    reviewCount !== null &&
+    reviewCount >= ESTABLISHED_REVIEW_COUNT
+  ) {
     signals.push({
       type: "seller_reputation",
-      weight: -0.9,
-      detail: `Seller is verified as LazMall (Lazada's brand/official storefront tier).`,
+      weight: -0.6,
+      detail: `Listing holds a ${itemRating.toFixed(2)}/5 rating across ${reviewCount.toLocaleString()} reviews — an established track record, not a brand-new listing.`,
       source: sellerSource,
     });
   }
-  if (isOfficial) {
-    signals.push({
-      type: "seller_reputation",
-      weight: -0.8,
-      detail: `Seller is verified as an Official Store on Lazada.`,
-      source: sellerSource,
-    });
-  }
-  if (isVerified && !isLazMall && !isOfficial) {
+
+  // Positive: brand / official store (inferred from the JSON-LD brand link,
+  // e.g. brand.url = ".../omron/?type=brand"). Lazada no longer exposes the
+  // LazMall flag in the page source, so this is our best public proxy.
+  if (jsonLd.isBrandStore && brand) {
     signals.push({
       type: "seller_reputation",
       weight: -0.4,
-      detail: `Seller has Lazada's "Verified" badge.`,
+      detail: `Listing is sold under the official "${brand}" brand store on Lazada.`,
       source: sellerSource,
     });
   }
 
-  // Negative seller signals.
-  if (sellerRating !== null && sellerRating > 0 && sellerRating < LOW_SHOP_RATING_THRESHOLD) {
-    signals.push({
-      type: "seller_reputation",
-      weight: 0.7,
-      detail: `Seller's average rating is ${sellerRating.toFixed(2)}/5 — below the ${LOW_SHOP_RATING_THRESHOLD}/5 threshold typical for established Lazada sellers.`,
-      source: sellerSource,
-    });
-  }
-  if (sellerDaysOpened !== null && sellerDaysOpened < VERY_NEW_SHOP_DAYS) {
-    signals.push({
-      type: "seller_reputation",
-      weight: 0.6,
-      detail: `Seller's shop has been open only ${sellerDaysOpened} days — newly registered sellers carry higher risk.`,
-      source: sellerSource,
-    });
-  }
-
-  // Listing-level negatives.
+  // Negative: low rating.
   if (itemRating !== null && itemRating > 0 && itemRating < LOW_ITEM_RATING_THRESHOLD) {
     signals.push({
       type: "review_authenticity",
@@ -211,9 +192,19 @@ export async function lazadaProductScraper({ id, data }: ScraperInput): Promise<
     });
   }
 
+  // Negative: sparse reviews mean little public track record to judge by.
+  if (reviewCount !== null && reviewCount < SPARSE_REVIEW_COUNT) {
+    signals.push({
+      type: "seller_reputation",
+      weight: 0.4,
+      detail: `Listing has only ${reviewCount} review${reviewCount === 1 ? "" : "s"} — limited public track record to judge the seller by.`,
+      source: sellerSource,
+    });
+  }
+
   const elapsedMs = Date.now() - startedAt;
   console.log(
-    `[lazada-product] lookup done: itemId=${data.item_id} seller="${sellerName ?? "?"}" sellerRating=${sellerRating ?? "?"} sellerDays=${sellerDaysOpened ?? "?"} listing="${productTitle ?? "?"}" price=${price ?? "?"} rating=${itemRating ?? "?"} reviews=${reviewCount ?? "?"} sold=${sold ?? "?"} lazMall=${isLazMall} signals=${signals.length} (${elapsedMs}ms)`,
+    `[lazada-product] lookup done: itemId=${data.item_id} seller="${sellerName ?? "?"}" sellerId=${sellerId || "?"} brand="${brand ?? "?"}" brandStore=${jsonLd.isBrandStore} listing="${productTitle ?? "?"}" price=${price ?? "?"} rating=${itemRating ?? "?"} reviews=${reviewCount ?? "?"} reviewApi=${review ? "ok" : "miss"} signals=${signals.length} (${elapsedMs}ms)`,
   );
 
   return {
@@ -224,33 +215,99 @@ export async function lazadaProductScraper({ id, data }: ScraperInput): Promise<
   };
 }
 
-// Lazada injects product state via:
-//   window.runParams = { data: { root: { fields: { ... } } } };
-// or some pages use the older shape:
-//   window.runParams = { mods: { ..., fields: { ... } } };
-// Pattern hunts both.
-function extractRunParams(html: string): LazadaRunParams | null {
-  // Prefer the assignment to window.runParams = {...};
-  const assignMatch = html.match(/window\.runParams\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
-  if (assignMatch) {
+// Calls the review API with the warmup cookies. Returns null on any failure
+// (HTTP error, anti-bot punish page, non-JSON body) — the caller degrades to
+// brand/JSON-LD-only signals or an empty result.
+async function fetchReviews(
+  itemId: string,
+  pageUrl: string,
+  cookie: string,
+): Promise<LazadaReviewResponse | null> {
+  const reviewUrl = `https://my.lazada.com.ph/pdp/review/getReviewList?itemId=${encodeURIComponent(itemId)}&pageSize=3&filter=0&sort=0`;
+  try {
+    const headers: Record<string, string> = {
+      ...getLazadaHeaders(pageUrl),
+      Accept: "application/json, text/plain, */*",
+      "Sec-Fetch-Mode": "cors",
+      "Sec-Fetch-Dest": "empty",
+    };
+    if (cookie) headers.Cookie = cookie;
+
+    const res = await fetchWithTimeout(reviewUrl, { headers, timeoutMs: REVIEW_TIMEOUT_MS });
+    if (!res.ok) {
+      console.warn(`[lazada-product] review API HTTP ${res.status} for itemId=${itemId}`);
+      return null;
+    }
+    const text = await res.text();
+    // Anti-bot interstitial — Lazada serves an HTML captcha page (200 OK) with
+    // a "_____tmd_____/punish" redirect instead of JSON when it rate-limits us.
+    if (isPunishPage(text)) {
+      console.warn(`[lazada-product] review API anti-bot punish for itemId=${itemId}`);
+      return null;
+    }
+    const json = JSON.parse(text) as LazadaReviewResponse;
+    if (!json.success) {
+      console.warn(`[lazada-product] review API success=false for itemId=${itemId}`);
+      return null;
+    }
+    return json;
+  } catch (err) {
+    console.warn(`[lazada-product] review API failed for itemId=${itemId}: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+function isPunishPage(text: string): boolean {
+  return (
+    text.includes("_____tmd_____") ||
+    text.includes("x5secdata") ||
+    /\"action\"\s*:\s*\"captcha\"/.test(text)
+  );
+}
+
+// Pulls Set-Cookie name=value pairs off the page response so the review API
+// call looks like it came from the same session. Uses getSetCookie() (Node 20+
+// / Bun) with a single-header fallback.
+function collectCookies(res: Response): string {
+  const list =
+    typeof res.headers.getSetCookie === "function"
+      ? res.headers.getSetCookie()
+      : ([res.headers.get("set-cookie")].filter(Boolean) as string[]);
+  return list.map((c) => c.split(";")[0]).join("; ");
+}
+
+// Parses the JSON-LD <script type="application/ld+json"> blocks for the Product
+// node. Gives us product title + brand, and whether the brand links to an
+// official brand store (brand.url contains "type=brand").
+function extractJsonLdProduct(html: string): JsonLdProduct {
+  const result: JsonLdProduct = { title: null, brand: null, isBrandStore: false };
+  const blocks = html.matchAll(
+    /<script[^>]*type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi,
+  );
+  for (const block of blocks) {
+    let node: unknown;
     try {
-      return JSON.parse(assignMatch[1]) as LazadaRunParams;
+      node = JSON.parse(block[1]);
     } catch {
-      // fall through to other strategies
+      continue;
+    }
+    const candidates = Array.isArray(node) ? node : [node];
+    for (const c of candidates) {
+      if (!c || typeof c !== "object") continue;
+      const obj = c as Record<string, unknown>;
+      if (obj["@type"] !== "Product") continue;
+      if (typeof obj.name === "string") result.title = obj.name;
+      const brand = obj.brand as Record<string, unknown> | undefined;
+      if (brand && typeof brand === "object") {
+        if (typeof brand.name === "string" && brand.name.trim()) result.brand = brand.name.trim();
+        if (typeof brand.url === "string" && /type=brand/i.test(brand.url)) {
+          result.isBrandStore = true;
+        }
+      }
+      return result; // first Product node wins
     }
   }
-
-  // Some pages use `app.run({ data: ... })`-style boot — try that too.
-  const appRunMatch = html.match(/app\.run\(\s*(\{[\s\S]*?\})\s*\);/);
-  if (appRunMatch) {
-    try {
-      return JSON.parse(appRunMatch[1]) as LazadaRunParams;
-    } catch {
-      // fall through
-    }
-  }
-
-  return null;
+  return result;
 }
 
 function toNumber(v: unknown): number | null {
@@ -266,25 +323,26 @@ function toNumber(v: unknown): number | null {
   return null;
 }
 
-function parsePrice(v: unknown): number | null {
-  return toNumber(v);
+// Parses a Lazada price string like "₱10,699.00" → 10699. Strips the currency
+// symbol and thousands separators.
+function parsePesoPrice(v: unknown): number | null {
+  if (typeof v !== "string") return toNumber(v);
+  const cleaned = v.replace(/[^\d.]/g, "");
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 function formatSellerBaseline(
   name: string | undefined,
   id: string,
   rating: number | null,
-  followers: number | null,
-  daysOpened: number | null,
-  badges: { isLazMall: boolean; isOfficial: boolean; isVerified: boolean },
+  reviewCount: number | null,
+  isBrandStore: boolean,
 ): string {
   const parts = [`Lazada seller ${name ? `"${name}"` : id || "(unknown)"}`];
-  if (rating !== null) parts.push(`rating ${rating.toFixed(2)}/5`);
-  if (followers !== null) parts.push(`${followers} followers`);
-  if (daysOpened !== null) parts.push(`${daysOpened} days open`);
-  if (badges.isLazMall) parts.push("LazMall");
-  else if (badges.isOfficial) parts.push("Official Store");
-  else if (badges.isVerified) parts.push("Verified");
+  if (rating !== null) parts.push(`listing rating ${rating.toFixed(2)}/5`);
+  if (reviewCount !== null) parts.push(`${reviewCount.toLocaleString()} reviews`);
+  if (isBrandStore) parts.push("official brand store");
   return parts.join(", ");
 }
 
@@ -293,12 +351,10 @@ function formatListingBaseline(
   price: number | null,
   rating: number | null,
   reviewCount: number | null,
-  sold: number | null,
 ): string {
   const parts = [`Lazada listing ${title ? `"${title}"` : "(no title)"}`];
   if (price !== null) parts.push(`price ₱${price.toFixed(2)}`);
   if (rating !== null) parts.push(`rating ${rating.toFixed(2)}/5`);
-  if (reviewCount !== null) parts.push(`${reviewCount} reviews`);
-  if (sold !== null) parts.push(`${sold} sold`);
+  if (reviewCount !== null) parts.push(`${reviewCount.toLocaleString()} reviews`);
   return parts.join(", ");
 }
