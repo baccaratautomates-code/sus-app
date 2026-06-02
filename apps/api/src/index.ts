@@ -12,6 +12,8 @@ import {
   screenshotMarketplaceMessage,
   unsupportedMarketplaceMessage,
 } from "./ocr";
+import { extractTitleFromOcr } from "./title-extract";
+import { searchMarketplaceProduct } from "./marketplace-search";
 import { classifyNonCommerce } from "./normalize";
 import { canAccessProFeatures, checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
@@ -579,15 +581,51 @@ app.post("/scan/image", async (c) => {
       return c.json({ ...response, is_pro: quotaIsPro });
     }
 
-    // No URL extracted. Return Not Enough Info with copy that nudges the user
-    // toward a clearer photo or pasting the URL directly. We don't burn quota
-    // on this failure — the user got no value out of the scan.
-    //
-    // First try to recognize the marketplace from the OCR'd UI chrome — if we
-    // can tell the user "this is a TikTok Shop screenshot, here's how to share
-    // it" they get a real path forward instead of the generic "crop the
-    // address bar" hint (useless for TikTok Shop, which has no browser).
+    // No URL extracted. Try the OCR-to-search bridge before giving up:
+    // detect the marketplace from UI chrome → extract product title via
+    // Groq → site-filtered Google CSE search → if we get a canonical
+    // product URL back, run the standard scan pipeline on it. This is
+    // the path that makes TikTok Shop screenshots actually scannable —
+    // TikTok is in-app only so there's never a URL to OCR in the first
+    // place. Bridge gracefully no-ops when GOOGLE_CSE_* env vars are
+    // unset, falling through to the marketplace-specific hint copy.
     const detectedMarketplace = ocrText ? detectScreenshotMarketplace(ocrText) : null;
+    if (detectedMarketplace && ocrText) {
+      const { title } = await extractTitleFromOcr(ocrText);
+      if (title) {
+        console.log(
+          `[scan/image] bridging via search: marketplace=${detectedMarketplace} title="${title}"`,
+        );
+        const searchResult = await searchMarketplaceProduct(detectedMarketplace, title);
+        if (searchResult) {
+          console.log(
+            `[scan/image] bridge found URL ${searchResult.url} — running standard scan`,
+          );
+          // Same quota burn + run-scan path as the URL-was-in-OCR branch.
+          // The search call itself doesn't burn quota; we only charge once
+          // the user is getting a real scan result.
+          const response = await runScan({
+            kind: "url",
+            url: searchResult.url,
+            user_id: userId,
+          });
+          try {
+            await consumeQuota(userId);
+          } catch (err) {
+            console.error(
+              `[scan/image] consumeQuota failed user=${userId}: ${(err as Error).message}`,
+            );
+          }
+          return c.json({ ...response, is_pro: quotaIsPro });
+        }
+      }
+    }
+
+    // Bridge missed (no marketplace detected, no title extracted, no
+    // search hit, or CSE not configured). Return Not Enough Info with
+    // copy that nudges the user toward a clearer photo or pasting the
+    // URL directly. We don't burn quota on this failure — the user got
+    // no value out of the scan.
     const summary = detectedMarketplace
       ? screenshotMarketplaceMessage(detectedMarketplace)
       : ocrText

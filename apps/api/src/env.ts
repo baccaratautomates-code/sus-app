@@ -21,4 +21,11 @@ export const env = {
   // is_pro = true in the DB (which would collide with RevenueCat once live).
   // Format: BYPASS_USER_IDS=uuid-1,uuid-2
   BYPASS_USER_IDS: process.env.BYPASS_USER_IDS ?? "",
+  // Google Programmable Search Engine — powers the OCR-to-search bridge in
+  // /scan/image when a marketplace screenshot has no extractable URL.
+  // Both must be set for the bridge to fire; if either is empty, the endpoint
+  // gracefully falls back to the "Not Enough Info with marketplace hint" copy.
+  // Setup steps documented in marketplace-search.ts header comment.
+  GOOGLE_CSE_API_KEY: process.env.GOOGLE_CSE_API_KEY ?? "",
+  GOOGLE_CSE_ID: process.env.GOOGLE_CSE_ID ?? "",
 };
