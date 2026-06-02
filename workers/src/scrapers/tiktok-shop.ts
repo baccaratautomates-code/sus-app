@@ -1,5 +1,5 @@
 import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
-import { emptyResult, fetchWithTimeout } from "./_lib";
+import { emptyResult, proxyFetch } from "./_lib";
 import { getTiktokHeaders } from "./_tiktok-auth";
 
 // TikTok creator + shop scraper.
@@ -67,9 +67,12 @@ export async function tiktokShopScraper({ id, data }: ScraperInput): Promise<Scr
 
   let html: string;
   try {
-    const res = await fetchWithTimeout(profileUrl, {
-      headers: getTiktokHeaders("https://www.tiktok.com/"),
+    // Routed through ScraperAPI (residential IP) — TikTok 403s datacenter IPs.
+    // getTiktokHeaders() is passed as the direct-fetch fallback for local dev.
+    const res = await proxyFetch(profileUrl, {
+      countryCode: "ph",
       timeoutMs: TIMEOUT_MS,
+      headers: getTiktokHeaders("https://www.tiktok.com/"),
     });
     if (!res.ok) {
       console.warn(`[tiktok-shop] HTTP ${res.status} for @${username}`);

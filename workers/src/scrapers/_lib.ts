@@ -47,14 +47,24 @@ export async function fetchWithTimeout(
 // `countryCode` geo-targets the proxy exit node (e.g. "ph" for Lazada PH, which
 // also reduces the chance of a region challenge). Pass the SAME timeoutMs you'd
 // use for a direct fetch — proxying adds latency, so size it generously.
+// `ultraPremium` routes through ScraperAPI's Ultra Premium pool — required for
+// the most aggressively-protected domains (e.g. shopee.ph, which 403s the basic
+// pool). It costs more credits and is only available on PAID ScraperAPI plans;
+// on the free plan an ultra-premium request returns 403 with a plan-limit error.
 export async function proxyFetch(
   targetUrl: string,
-  opts: { timeoutMs?: number; countryCode?: string; headers?: Record<string, string> } = {},
+  opts: {
+    timeoutMs?: number;
+    countryCode?: string;
+    ultraPremium?: boolean;
+    headers?: Record<string, string>;
+  } = {},
 ): Promise<Response> {
   const key = process.env.SCRAPER_API_KEY;
   if (key) {
     const params = new URLSearchParams({ api_key: key, url: targetUrl });
     if (opts.countryCode) params.set("country_code", opts.countryCode);
+    if (opts.ultraPremium) params.set("ultra_premium", "true");
     return fetchWithTimeout(`https://api.scraperapi.com/?${params.toString()}`, {
       timeoutMs: opts.timeoutMs,
     });
