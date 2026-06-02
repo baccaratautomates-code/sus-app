@@ -69,6 +69,15 @@ export async function fetchThumbnail(
     // better than scraping the SPA shell for the same banner.
   }
 
+  // Lazada blocks datacenter IPs (403), so the generic og:image scrape below
+  // returns nothing from prod. But Lazada's review API — which we reach through
+  // ScraperAPI — carries the product image as `item.itemPic` (a slatic.net CDN
+  // URL that IS publicly fetchable). Use it. Falls through on miss.
+  if (normalized?.marketplace === "lazada-ph" && normalized.item_id) {
+    const fromLazada = await fetchLazadaThumbnail(normalized.item_id);
+    if (fromLazada) return fromLazada;
+  }
+
   // TikTok serves the TikTok Shop brand mark as og:image to bots — a 200x200
   // black square with white "TikTok Shop" text. Bypass the generic scraper
   // for TikTok URLs and try to pull the actual product image out of the
@@ -140,6 +149,51 @@ async function fetchShopeeThumbnail(
         `[thumbnail] shopee API ${shopId}/${itemId} → fetch error: ${msg}`,
       );
     }
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Lazada product image via the review API, routed through ScraperAPI (Lazada
+// 403s datacenter IPs). This is the SAME endpoint the lazada-product worker
+// uses; we call it again here for the thumbnail (one extra cheap basic request
+// per Lazada scan). Needs SCRAPER_API_KEY on the API service — without it we
+// can't reach Lazada at all, so we return null and let the caller degrade.
+const LAZADA_THUMB_TIMEOUT_MS = 8_000; // proxied call; free on cache-miss (parallel with 25s scrape)
+
+async function fetchLazadaThumbnail(itemId: string): Promise<string | null> {
+  const key = process.env.SCRAPER_API_KEY;
+  if (!key) return null;
+  const reviewUrl = `https://my.lazada.com.ph/pdp/review/getReviewList?itemId=${encodeURIComponent(itemId)}&pageSize=1&filter=0&sort=0`;
+  const proxied = `https://api.scraperapi.com/?api_key=${key}&url=${encodeURIComponent(reviewUrl)}&country_code=ph`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), LAZADA_THUMB_TIMEOUT_MS);
+  try {
+    const res = await fetch(proxied, { signal: controller.signal });
+    if (!res.ok) {
+      console.log(`[thumbnail] lazada review ${itemId} → HTTP ${res.status}`);
+      return null;
+    }
+    const text = await res.text();
+    if (text.includes("_____tmd_____") || text.includes("x5secdata")) {
+      console.log(`[thumbnail] lazada review ${itemId} → anti-bot punish`);
+      return null;
+    }
+    const json = JSON.parse(text) as { model?: { item?: { itemPic?: string } } };
+    let pic = json.model?.item?.itemPic;
+    if (!pic) {
+      console.log(`[thumbnail] lazada review ${itemId} → no itemPic`);
+      return null;
+    }
+    if (pic.startsWith("//")) pic = `https:${pic}`; // protocol-relative guard
+    console.log(`[thumbnail] lazada review ${itemId} → ${pic}`);
+    return pic;
+  } catch (err) {
+    const msg = (err as Error).message;
+    console.log(
+      `[thumbnail] lazada review ${itemId} → ${(err as Error).name === "AbortError" ? `timeout (${LAZADA_THUMB_TIMEOUT_MS}ms)` : `fetch error: ${msg}`}`,
+    );
     return null;
   } finally {
     clearTimeout(timer);
