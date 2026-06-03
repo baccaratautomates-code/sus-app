@@ -190,6 +190,32 @@ export async function runScan(req: ScanRequest): Promise<ScanResponse> {
     // Sources stay — they show the user what we checked, even though we couldn't conclude.
   }
 
+  //    (c) "Suspicious" / "High Risk" with NO risk-evidence signal. A negative
+  //        verdict must be grounded in at least one scraper-flagged negative
+  //        (a signal with weight > 0). On thin data — e.g. a Temu listing where
+  //        all we recovered is the product title, and the only weighted signals
+  //        are POSITIVE platform-age facts (whois/wayback on temu.com) — the
+  //        model sometimes invents a negative lean and emits "Suspicious" / 50
+  //        anyway. That's an unsourced accusation: PRD §3.4 says thin data is
+  //        "Not Enough Info", and §5 forbids labelling a seller negatively
+  //        without evidence. Downgrade + scrub.
+  const hasRiskEvidence = signals.some((s) => s.weight > 0);
+  if (
+    (synth.verdict === "Suspicious" || synth.verdict === "High Risk") &&
+    !hasRiskEvidence
+  ) {
+    console.warn(
+      `[scan] downgrading ${synth.verdict} -> Not Enough Info — no negative-evidence signal (weight>0) to ground it (PRD §3.4/§5)`,
+    );
+    synth.verdict = "Not Enough Info";
+    synth.trust_score = 0;
+    synth.red_flags = [];
+    synth.green_flags = [];
+    synth.summary =
+      "We couldn't turn up anything specific about this seller or listing — only general facts about the platform it's on, which don't tell us whether this seller is trustworthy. That's not a strike against them, just too little to judge. Check the listing's own ratings and reviews, and message the seller before paying.";
+    // Sources stay — they show what we checked even though we couldn't conclude.
+  }
+
   const thumbnailUrl = await thumbnailPromise;
   const response: ScanResponse = {
     ...synth,
