@@ -1,5 +1,5 @@
 import type { ScrapeJob, ScrapeResult, Signal, Source } from "@sus/shared";
-import { emptyResult, fetchWithTimeout } from "./_lib";
+import { emptyResult, proxyFetch } from "./_lib";
 import { getTemuHeaders } from "./_temu-auth";
 
 // Temu listing scraper. Temu is structurally different from Shopee/Lazada/TikTok:
@@ -11,7 +11,7 @@ import { getTemuHeaders } from "./_temu-auth";
 // Data is extracted from JSON-LD <script> blocks (Temu uses Schema.org Product
 // markup for SEO) plus a couple of fallback heuristics.
 
-const TIMEOUT_MS = 12_000;
+const TIMEOUT_MS = 20_000; // proxied fetch adds latency; scan budget is 25s
 
 // Calibrated for Temu's "branded counterfeit" risk. These brand names are common
 // targets for fake listings; combined with a low Temu price, they're high-confidence
@@ -65,9 +65,16 @@ export async function temuListingScraper({ id, data }: ScraperInput): Promise<Sc
 
   let html: string;
   try {
-    const res = await fetchWithTimeout(pageUrl, {
-      headers: getTemuHeaders("https://www.temu.com/"),
+    // Temu 403s datacenter IPs (Railway), so route through ScraperAPI's
+    // residential pool. country_code=us keeps prices in USD, which the
+    // counterfeit-brand threshold (COUNTERFEIT_PRICE_THRESHOLD_USD) is
+    // calibrated against — a ph exit node returns PHP and silently disables
+    // that red flag. getTemuHeaders() is the direct-fetch fallback for local
+    // dev when SCRAPER_API_KEY is unset.
+    const res = await proxyFetch(pageUrl, {
+      countryCode: "us",
       timeoutMs: TIMEOUT_MS,
+      headers: getTemuHeaders("https://www.temu.com/"),
     });
     if (!res.ok) {
       console.warn(`[temu-listing] HTTP ${res.status} for ${pageUrl}`);
