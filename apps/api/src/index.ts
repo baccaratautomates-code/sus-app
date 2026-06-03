@@ -17,6 +17,7 @@ import { searchMarketplaceProduct } from "./marketplace-search";
 import { classifyNonCommerce } from "./normalize";
 import { canAccessProFeatures, checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
+import { resolveShortLink } from "./shortlink";
 import { fetchThumbnail } from "./thumbnail";
 import { startWatchCron } from "./watch";
 import { handleRevenueCatEvent } from "./webhook";
@@ -413,6 +414,19 @@ app.post("/scan", async (c) => {
   const parsed = parseScanRequest(body);
   if (!parsed.ok) return c.json({ error: parsed.error }, 400);
 
+  // Resolve share/short links (e.g. vt.tiktok.com/<id>) to their canonical URL
+  // up front, so normalize + the unsupported-marketplace gate + the scrapers
+  // all see the real destination instead of an opaque redirect. Without this a
+  // TikTok Shop share link slips past the gate and burns a 25s noise scan
+  // against bare "tiktok.com". The og_info image (TikTok embeds the product
+  // photo in the redirect query string) is kept for the thumbnail fallback.
+  let shortlinkOgImage: string | null = null;
+  if (parsed.value.kind === "url" && parsed.value.url) {
+    const resolved = await resolveShortLink(parsed.value.url);
+    parsed.value.url = resolved.url;
+    shortlinkOgImage = resolved.ogImage;
+  }
+
   // Input gate (PRD §1 scope: product/seller listings only). Block obvious
   // non-commerce domains — news sites, search engines, social platforms,
   // government / education TLDs — with a friendly "paste a product link"
@@ -446,8 +460,10 @@ app.post("/scan", async (c) => {
       console.log(`[scan] ${parsed.value.url} → ${unsupported} not supported — tailored Not Enough Info`);
       // FB Marketplace listings often have a usable og:image (the listing
       // photo) even though we can't gather signals about the seller — grab it
-      // so both the Verdict screen and History row get a thumbnail.
-      const thumbnailUrl = await fetchThumbnail(parsed.value.url);
+      // so both the Verdict screen and History row get a thumbnail. For TikTok
+      // Shop share links the product photo rode in on the resolved og_info, so
+      // prefer that (the listing page itself only yields the brand mark).
+      const thumbnailUrl = shortlinkOgImage ?? (await fetchThumbnail(parsed.value.url));
       const response: ScanResponse = {
         trust_score: 0,
         verdict: "Not Enough Info",
