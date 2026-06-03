@@ -14,7 +14,7 @@ import {
 } from "./ocr";
 import { extractTitleFromOcr } from "./title-extract";
 import { searchMarketplaceProduct } from "./marketplace-search";
-import { classifyNonCommerce } from "./normalize";
+import { classifyNonCommerce, normalizeInput } from "./normalize";
 import { canAccessProFeatures, checkQuota, consumeQuota } from "./quota";
 import { persistScan, runScan } from "./scan";
 import { resolveShortLink } from "./shortlink";
@@ -574,8 +574,13 @@ app.post("/scan/image", async (c) => {
       `[scan/image] OCR ${ocrText.length} chars user=${userId} preview="${ocrPreview}"`,
     );
 
-    const extractedUrl = extractUrl(ocrText);
-    if (extractedUrl) {
+    const rawExtracted = extractUrl(ocrText);
+    if (rawExtracted) {
+      // Resolve short links (e.g. vt.tiktok.com/<id>) before any gate or
+      // normalize runs — mirrors the /scan URL path. An unresolved shortener
+      // slips past the marketplace checks and ends up scanning the wrong thing.
+      const extractedUrl = (await resolveShortLink(rawExtracted)).url;
+
       // Same PRD §1 scope gate as the URL endpoint. If OCR pulled a news /
       // social / institutional URL out of a screenshot, reject with the same
       // "paste a product link" copy instead of running the scrape pipeline.
@@ -610,6 +615,38 @@ app.post("/scan/image", async (c) => {
           trust_score: 0,
           verdict: "Not Enough Info",
           summary: unsupportedMarketplaceMessage(unsupported),
+          red_flags: [],
+          green_flags: [],
+          confidence: "Low",
+          sources: [],
+          scanned_at: new Date().toISOString(),
+          input: req,
+          thumbnail_url: thumbnailUrl,
+        };
+        await persistScan(req, extractedUrl, response, thumbnailUrl);
+        return c.json({ ...response, is_pro: quotaIsPro });
+      }
+
+      // Guard against the "image gives a different verdict than the link" bug.
+      // OCR frequently captures a TRUNCATED marketplace URL — a mobile browser
+      // shows "shopee.ph/Some-Product…" without the trailing i.<shop>.<item>
+      // IDs, or OCR garbles the digits. normalize then sees the marketplace
+      // domain but can't recover the seller/listing identity, so the scan would
+      // score the bare platform domain and hand back a misleading verdict that
+      // disagrees with a clean link scan of the same product. Refuse instead and
+      // ask for the real link — don't consume quota for an unreadable input.
+      const normalized = normalizeInput(extractedUrl);
+      if (normalized?.marketplace && !normalized.shop_id && !normalized.item_id) {
+        console.log(
+          `[scan/image] extracted ${extractedUrl} → marketplace=${normalized.marketplace} but no shop_id/item_id (truncated/garbled OCR) — refusing degraded scan`,
+        );
+        const req = { kind: "image" as const, image_id: "uploaded", user_id: userId };
+        const thumbnailUrl = await fetchThumbnail(extractedUrl);
+        const response: ScanResponse = {
+          trust_score: 0,
+          verdict: "Not Enough Info",
+          summary:
+            "We could read the marketplace from your screenshot but not the full listing link — screenshots usually cut off the part of the address that identifies the specific seller. Open the listing, copy its link, and paste it into Sus for an accurate check.",
           red_flags: [],
           green_flags: [],
           confidence: "Low",
