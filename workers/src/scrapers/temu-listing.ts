@@ -27,10 +27,6 @@ const PROTECTED_BRANDS = [
   "dyson",
 ];
 
-// Currency-prefix detection — Temu localizes, so the symbol depends on the
-// region the request was made from (USD, EUR, GBP, PHP, etc.).
-const CURRENCY_PATTERN = /(?:US\$|USD|\$|€|EUR|£|GBP|₱|PHP)\s*([\d,]+(?:\.\d+)?)/i;
-
 const COUNTERFEIT_PRICE_THRESHOLD_USD = 50; // brands cheaper than this on Temu = likely fake
 
 interface ScraperInput {
@@ -95,7 +91,7 @@ export async function temuListingScraper({ id, data }: ScraperInput): Promise<Sc
       : product.brand.name ?? null
     : null;
   const offer = pickOffer(product?.offers);
-  const priceUsd = parsePriceUsd(offer?.price, offer?.priceCurrency, html);
+  const priceUsd = parsePriceUsd(offer?.price, offer?.priceCurrency);
   const rating = toNumber(product?.aggregateRating?.ratingValue);
   const reviewCount = toNumber(
     product?.aggregateRating?.reviewCount ?? product?.aggregateRating?.ratingCount,
@@ -203,29 +199,20 @@ function pickOffer(offers: Offer | Offer[] | undefined): Offer | null {
   return offers;
 }
 
-// Convert price to USD when possible. If currency is anything other than USD/$
-// we don't have FX rates here, so return the raw number — synthesis prompt
-// understands localized prices. The brand-counterfeit threshold is USD-anchored
-// so non-USD prices won't trigger that specific red flag, which is conservative.
+// Price is ONLY trusted when it comes from structured JSON-LD (offer.price).
+// We deliberately do NOT fall back to scanning the HTML for a "$N" string:
+// Temu's page is a JS-rendered SPA whose static HTML carries no JSON-LD, just
+// promo banners ("$1 credit", "spin to win"), so a loose $-scan grabbed "$1.00"
+// and made a ₱-priced watch look like a counterfeit — a false High Risk lean.
+// Better to report no price (null) than a wrong one; the brand-in-title
+// counterfeit check still fires without it. If currency isn't USD we return the
+// raw number as-is (no FX here); the USD-anchored threshold just won't trigger.
 function parsePriceUsd(
   raw: number | string | undefined,
   currency: string | undefined,
-  html: string,
 ): number | null {
-  let n = toNumber(raw);
-  if (n === null) {
-    // Fallback — scan HTML for the first price-looking string with a known
-    // currency prefix.
-    const m = html.match(CURRENCY_PATTERN);
-    if (m) {
-      n = toNumber(m[1].replace(/,/g, ""));
-    }
-  }
+  const n = toNumber(raw);
   if (n === null) return null;
-  if (currency && currency !== "USD") {
-    // Not converting; return as-is. Brand-counterfeit threshold won't fire on non-USD.
-    return n;
-  }
   return n;
 }
 
