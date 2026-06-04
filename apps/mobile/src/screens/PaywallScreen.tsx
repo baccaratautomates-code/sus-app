@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -248,9 +249,19 @@ export default function PaywallScreen({ navigation }: ScreenProps<"Paywall">) {
         </Pressable>
 
         <View style={styles.legalRow}>
-          <Text style={styles.legalLink}>Privacy Policy</Text>
+          <Pressable
+            onPress={() => Linking.openURL("https://sus-app-flax.vercel.app/privacy")}
+            hitSlop={8}
+          >
+            <Text style={styles.legalLink}>Privacy Policy</Text>
+          </Pressable>
           <Text style={styles.legalDot}>·</Text>
-          <Text style={styles.legalLink}>Terms of Use</Text>
+          <Pressable
+            onPress={() => Linking.openURL("https://sus-app-flax.vercel.app/terms")}
+            hitSlop={8}
+          >
+            <Text style={styles.legalLink}>Terms of Use</Text>
+          </Pressable>
           <Text style={styles.legalDot}>·</Text>
           <Pressable onPress={onRestore} hitSlop={8}>
             <Text style={styles.legalLink}>Restore</Text>
