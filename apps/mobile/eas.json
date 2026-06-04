@@ -8,15 +8,37 @@
       "developmentClient": true,
       "distribution": "internal",
       "ios": { "simulator": false },
-      "channel": "development"
+      "channel": "development",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://susapi-production.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://qwapxuzchmsfmkeucfcc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXB4dXpjaG1zZm1rZXVjZmNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3ODk0MDYsImV4cCI6MjA5NTM2NTQwNn0.iB5fsxaZGYz4sjtmvByRO674x7MTbrkpbBcG92Hz2vQ",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_IOS": "test_RIkWxtiYlzguMsXotOLrJUrXkGV",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID": "test_RIkWxtiYlzguMsXotOLrJUrXkGV"
+      }
     },
     "preview": {
       "distribution": "internal",
-      "channel": "preview"
+      "channel": "preview",
+      "android": { "buildType": "apk" },
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://susapi-production.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://qwapxuzchmsfmkeucfcc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXB4dXpjaG1zZm1rZXVjZmNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3ODk0MDYsImV4cCI6MjA5NTM2NTQwNn0.iB5fsxaZGYz4sjtmvByRO674x7MTbrkpbBcG92Hz2vQ",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_IOS": "test_RIkWxtiYlzguMsXotOLrJUrXkGV",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID": "test_RIkWxtiYlzguMsXotOLrJUrXkGV"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "channel": "production"
+      "channel": "production",
+      "env": {
+        "EXPO_PUBLIC_API_BASE": "https://susapi-production.up.railway.app",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://qwapxuzchmsfmkeucfcc.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF3YXB4dXpjaG1zZm1rZXVjZmNjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3ODk0MDYsImV4cCI6MjA5NTM2NTQwNn0.iB5fsxaZGYz4sjtmvByRO674x7MTbrkpbBcG92Hz2vQ",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_IOS": "test_RIkWxtiYlzguMsXotOLrJUrXkGV",
+        "EXPO_PUBLIC_REVENUECAT_API_KEY_ANDROID": "test_RIkWxtiYlzguMsXotOLrJUrXkGV"
+      }
     }
   },
   "submit": {
