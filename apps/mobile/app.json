@@ -2,6 +2,7 @@
   "expo": {
     "name": "Sus",
     "slug": "sus",
+    "owner": "sus-app",
     "version": "0.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
@@ -32,6 +33,11 @@
     "scheme": "sus",
     "web": {
       "bundler": "metro"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "80dcbb8d-6d43-42f6-8cac-1e8887b917e7"
+      }
     }
   }
 }
