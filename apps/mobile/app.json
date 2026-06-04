@@ -36,8 +36,31 @@
     },
     "extra": {
       "eas": {
-        "projectId": "80dcbb8d-6d43-42f6-8cac-1e8887b917e7"
+        "projectId": "80dcbb8d-6d43-42f6-8cac-1e8887b917e7",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "CheckonSus",
+                  "bundleIdentifier": "com.disruptorsmedia.sus.share-extension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.disruptorsmedia.sus"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/80dcbb8d-6d43-42f6-8cac-1e8887b917e7"
     }
   }
 }
